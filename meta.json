@@ -1,0 +1,10 @@
+{
+    "name": "OmniPrompt-Anki",
+    "author": "stanamosov",
+    "description": "An AI-powered Anki add-on that updates card fields using OpenAI's GPT models.",
+    "version": 1,
+    "min_point_version": 24,
+    "max_point_version": 24,
+    "ankiweb_id": null,
+    "mod": 1738264568
+}
