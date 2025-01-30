@@ -28,7 +28,10 @@ To help you understand how **OmniPrompt-Anki** works, here are some key interfac
 
 ### **From AnkiWeb**
 1. Open Anki and go to **Tools → Add-ons → Get Add-ons**.
-2. Enter the add-on code (to be provided when published on AnkiWeb).
+2. Enter the add-on code: 
+   ```
+   1383162606
+   ```
 3. Restart Anki to complete the installation.
 
 ### **From Codeberg or GitHub**
