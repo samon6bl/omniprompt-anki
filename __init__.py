@@ -14,6 +14,7 @@ from anki.hooks import addHook
 from aqt.utils import showInfo, getText
 from PyQt6.QtCore import Qt
 from logging.handlers import RotatingFileHandler
+from PyQt6.QtGui import QTextOption
 
 AI_PROVIDERS = ["openai", "deepseek"]
 
@@ -53,27 +54,28 @@ def load_prompt_templates():
             current_key = None
             current_value = []
             for line in file:
-                line = line.rstrip()
-                if not line or line.startswith("#"):
-                    continue
+                # Only remove trailing newlines, preserve all other whitespace
+                line = line.rstrip('\n')  # Changed from line.rstrip()
+                
                 if line.startswith("[") and line.endswith("]"):
-                    if current_key is not None and current_value:
+                    if current_key is not None:
                         templates[current_key] = "\n".join(current_value)
                     current_key = line[1:-1]
                     current_value = []
                 else:
                     current_value.append(line)
 
-            if current_key and current_value:
-                templates[current_key] = "\n".join(current_value).strip()
+            if current_key is not None:
+                templates[current_key] = "\n".join(current_value)
 
     return templates
 
 def save_prompt_templates(templates):
     templates_path = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "prompt_templates.txt")
-    with open(templates_path, "w", encoding="utf-8") as file:
+    with open(templates_path, "w", encoding="utf-8", newline="\n") as file:
         for key, value in sorted(templates.items()):
-            file.write(f"[{key}]\n{value}\n\n")
+            # Preserve exact content without stripping
+            file.write(f"[{key}]\n{value}\n\n")  # Removed .rstrip()
 
 def check_internet():
     try:
@@ -334,7 +336,10 @@ class SettingsDialog(QDialog):
         prompt_layout.addWidget(self.delete_prompt_button)
 
         self.prompt_edit = QTextEdit()
-        self.prompt_edit.setWordWrapMode(Qt.TextWrapMode.NoWrap) 
+        self.prompt_edit.setPlaceholderText("Use Shift+Enter for new lines")
+        self.prompt_edit.setAcceptRichText(False)
+        self.prompt_edit.setWordWrapMode(QTextOption.WrapMode.NoWrap)
+        self.prompt_edit.document().setDocumentMargin(12)
         prompt_layout.addWidget(QLabel("Prompt Template:"))
         prompt_layout.addWidget(self.prompt_edit)
 
@@ -382,7 +387,6 @@ class SettingsDialog(QDialog):
 
     def load_config(self, config):
         self.config = config
-        self.prompt_edit.setPlainText(self.config.get("PROMPT", "").replace("\\n", "\n").strip())  # Ensure line breaks are shown
         self.provider_combo.setCurrentText(self.config["AI_PROVIDER"])
 
         if self.config["AI_PROVIDER"] == "openai":
@@ -468,7 +472,7 @@ class SettingsDialog(QDialog):
             "OPENAI_MAX_TOKENS": int(self.max_tokens_input.text()) if self.provider_combo.currentText() == "openai" else self.config["OPENAI_MAX_TOKENS"],
             "DEEPSEEK_MAX_TOKENS": int(self.max_tokens_input.text()) if self.provider_combo.currentText() == "deepseek" else self.config["DEEPSEEK_MAX_TOKENS"],
             "note_type_id": selected_note_type_id,
-            "PROMPT": self.prompt_edit.toPlainText().replace("\n", "\\n").strip(),  # Explicitly preserve newlines
+            "PROMPT": self.prompt_edit.toPlainText(),
             "SELECTED_FIELDS": {
                 "output_field": self.explanation_field_combo.currentText()
             }
