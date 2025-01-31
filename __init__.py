@@ -1,3 +1,4 @@
+import yaml
 import requests
 import logging
 import os
@@ -14,12 +15,19 @@ import socket
 from PyQt6.QtCore import Qt
 from logging.handlers import RotatingFileHandler
 
+AI_PROVIDERS = ["OpenAI", "DeepSeek"]
+
 DEFAULT_CONFIG = {
-    "API_KEY": "",
+    "AI_PROVIDER": "openai",  # Default provider
+    "OPENAI_API_KEY": "",
+    "DEEPSEEK_API_KEY": "",
     "API_ENDPOINT": "api.openai.com",
     "OPENAI_MODEL": "gpt-4o-mini",
+    "DEEPSEEK_MODEL": "deepseek-chat",
     "OPENAI_TEMPERATURE": 0.2,
+    "DEEPSEEK_TEMPERATURE": 0.2,
     "OPENAI_MAX_TOKENS": 200,
+    "DEEPSEEK_MAX_TOKENS": 200,
     "note_type_id": None,
     "PROMPT": "Paste your prompt here. ",
     "SELECTED_FIELDS": {
@@ -37,6 +45,22 @@ logger = logging.getLogger("OmniPromptAnki")
 logger.setLevel(logging.INFO)
 logger.addHandler(log_handler)
 
+# --- Load & Save Prompt Templates ---
+def load_prompt_templates():
+    templates_path = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "prompt_templates.yaml")
+    try:
+        if os.path.exists(templates_path):
+            with open(templates_path, "r", encoding="utf-8") as file:
+                return yaml.safe_load(file) or {}
+    except yaml.YAMLError as e:
+        logger.error(f"Error loading prompt templates: {e}")
+    return {}
+
+def save_prompt_templates(templates):
+    templates_path = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "prompt_templates.yaml")
+    with open(templates_path, "w", encoding="utf-8") as file:
+        yaml.dump(templates, file, allow_unicode=True, default_flow_style=False)
+
 def check_internet():
     try:
         socket.create_connection(("8.8.8.8", 53), timeout=5)
@@ -51,10 +75,11 @@ class GPTGrammarExplainer:
         mw.addonManager.setConfigAction(__name__, self.show_settings_dialog)
 
     def make_openai_request(self, prompt):
+        """Send request to OpenAI API"""
         url = "https://api.openai.com/v1/chat/completions"
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.config['API_KEY']}"
+            "Authorization": f"Bearer {self.config['OPENAI_API_KEY']}"
         }
         data = {
             "model": self.config["OPENAI_MODEL"],
@@ -63,94 +88,87 @@ class GPTGrammarExplainer:
             "temperature": self.config["OPENAI_TEMPERATURE"]
         }
 
+        return self.send_request(url, headers, data)
+            
+    def make_deepseek_request(self, prompt):
+        """Send request to DeepSeek API"""
+        url = "https://api.deepseek.com/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.config['DEEPSEEK_API_KEY']}"
+        }
+        data = {
+            "model": self.config["DEEPSEEK_MODEL"],
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": self.config["DEEPSEEK_MAX_TOKENS"],
+            "temperature": self.config["DEEPSEEK_TEMPERATURE"]
+        }
+
+        return self.send_request(url, headers, data)
+
+    def send_request(self, url, headers, data):
+        """Generalized API request function with retry mechanism"""
         retries = 3
         backoff_factor = 2
         timeout = 20
 
         if not check_internet():
-            logger.error("No internet connection. Request failed.")
+            logger.error("No internet connection.")
             showWarning("No internet connection. Please check your network and try again.")
             return "[Error: No internet]"
 
         for attempt in range(retries):
             try:
-                logger.info(f"Sending API request: {data}")
+                safe_data = data.copy()
+                safe_data["Authorization"] = "[REDACTED]"
+                logger.info(f"Sending API request: {safe_data}")
                 response = requests.post(url, headers=headers, json=data, timeout=timeout)
-                response.raise_for_status()  # Check HTTP errors
-
+                response.raise_for_status()
                 response_text = response.json().get("choices", [{}])[0].get("message", {}).get("content", "[Error: No response]")
                 logger.info(f"API response: {response_text}")
-
                 return response_text
-                
+
             except requests.exceptions.Timeout:
                 logger.warning(f"Timeout error. Retrying attempt {attempt + 1}/{retries}...")
-                if attempt < retries - 1:
-                    time.sleep(backoff_factor * (attempt + 1))
-                else:
-                    logger.error("OpenAI API request failed after multiple attempts.")
-                    showWarning("OpenAI API request timed out after multiple attempts. Try again later.")
-                    return "[Error: API request timed out]"
-
+                time.sleep(backoff_factor * (attempt + 1))
             except requests.exceptions.RequestException as e:
-                logger.error(f"OpenAI API error: {e}")
-                showWarning(f"OpenAI API error: {e}")
+                logger.error(f"API error: {e}")
+                showWarning(f"API error: {e}")
                 return "[Error: API request failed]"
 
-        url = "https://api.openai.com/v1/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.config['API_KEY']}"
-        }
-        data = {
-            "model": self.config["OPENAI_MODEL"],
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": self.config["OPENAI_MAX_TOKENS"],
-            "temperature": self.config["OPENAI_TEMPERATURE"]
-        }
-
-        retries = 3  # Number of retry attempts
-        backoff_factor = 2  # Delay multiplier (2, 4, 8 seconds)
-        timeout = 20  # Increased timeout from 10 → 20 seconds
-
-        if not check_internet():
-            showWarning("No internet connection. Please check your network and try again.")
-            return "[Error: No internet]"
-        
-        for attempt in range(retries):
-            try:
-                response = requests.post(url, headers=headers, json=data, timeout=timeout)
-                response.raise_for_status()  # Check for HTTP errors
-                return response.json().get("choices", [{}])[0].get("message", {}).get("content", "[Error: No response]")
-            
-            except requests.exceptions.Timeout:
-                if attempt < retries - 1:
-                    wait_time = backoff_factor * (attempt + 1)
-                    logging.warning(f"Timeout error. Retrying in {wait_time} seconds...")
-                    time.sleep(wait_time)  # Wait before retrying
-                else:
-                    showWarning("OpenAI API request timed out after multiple attempts. Try again later.")
-                    return "[Error: API request timed out]"
-
-            except requests.exceptions.RequestException as e:
-                showWarning(f"OpenAI API error: {e}")
-                return "[Error: API request failed]"
+        return "[Error: API request failed after multiple attempts]"
+    
+    def generate_ai_response(self, prompt):
+        """Determine which AI provider to use"""
+        provider = self.config.get("AI_PROVIDER", "OpenAI")
+        if provider == "openai":
+            return self.make_openai_request(prompt)
+        elif provider == "deepseek":
+            return self.make_deepseek_request(prompt)
+        else:
+            logger.error(f"Invalid AI provider: {provider}")
+            return "[Error: Invalid AI provider]"
 
     def show_settings_dialog(self):
+        """Open settings UI"""
         dialog = SettingsDialog(mw)
-        dialog.load_config(self.config)  # Load existing config
-        if dialog.exec():  # If user clicks "Save"
+        dialog.load_config(self.config)
+        if dialog.exec():
             self.config = dialog.get_updated_config()
-            self.save_config()  # Save the updated configuration
+            self.save_config()
 
     def load_config(self):
+        """Load add-on configuration"""
         config = mw.addonManager.getConfig(__name__)
         return {**DEFAULT_CONFIG, **(config or {})}
 
     def save_config(self):
+        """Save configuration settings"""
         mw.addonManager.writeConfig(__name__, self.config)
 
     def on_browser_will_show(self, browser):
+        """Add menu item to browser"""
         menu = browser.form.menuEdit
         self.action = QAction("Update cards with OmniPrompt", browser)
         self.action.triggered.connect(lambda: self.update_selected_notes(browser))
@@ -232,6 +250,16 @@ class SettingsDialog(QDialog):
     def init_ui(self):
         layout = QVBoxLayout()
         
+        # --- AI Provider Selection ---
+        provider_group = QGroupBox("AI Provider Selection")
+        provider_layout = QVBoxLayout()
+        self.provider_combo = QComboBox()
+        self.provider_combo.addItems(AI_PROVIDERS)
+        provider_layout.addWidget(QLabel("Select AI Provider:"))
+        provider_layout.addWidget(self.provider_combo)
+        provider_group.setLayout(provider_layout)
+        layout.addWidget(provider_group)
+
         # Note Type Selection
         type_group = QGroupBox("Note Type Selection")
         type_layout = QFormLayout()
@@ -245,11 +273,11 @@ class SettingsDialog(QDialog):
         api_layout = QFormLayout()
         
         self.api_key_input = QLineEdit()
-        self.api_key_input.setPlaceholderText("Enter your OpenAI API key")
+        self.api_key_input.setPlaceholderText("Enter API key (OpenAI or DeepSeek)")
         api_layout.addRow("API Key:", self.api_key_input)
         
         self.model_combo = QComboBox()
-        self.model_combo.addItems(["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o"])
+        self.model_combo.addItems(["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o", "deepseek-reasoner"])
         api_layout.addRow("Model:", self.model_combo)
         
         self.temperature_input = QLineEdit()
@@ -273,11 +301,25 @@ class SettingsDialog(QDialog):
         field_group.setLayout(field_layout)
         layout.addWidget(field_group)
 
-        # Prompt Settings
-        prompt_group = QGroupBox("Prompt Template")
+        # --- Prompt Management ---
+        prompt_group = QGroupBox("Prompt Templates")
+        prompt_layout = QVBoxLayout()
+
+        self.prompt_combo = QComboBox()
+        self.prompt_combo.setEditable(True)
+        prompt_layout.addWidget(QLabel("Saved Prompts:"))
+        prompt_layout.addWidget(self.prompt_combo)
+
+        self.save_prompt_button = QPushButton("Save Current Prompt")
+        self.delete_prompt_button = QPushButton("Delete Selected Prompt")
+        prompt_layout.addWidget(self.save_prompt_button)
+        prompt_layout.addWidget(self.delete_prompt_button)
+
         self.prompt_edit = QTextEdit()
-        prompt_group.setLayout(QVBoxLayout())
-        prompt_group.layout().addWidget(self.prompt_edit)
+        prompt_layout.addWidget(QLabel("Prompt Template:"))
+        prompt_layout.addWidget(self.prompt_edit)
+
+        prompt_group.setLayout(prompt_layout)
         layout.addWidget(prompt_group)
 
         # Buttons
@@ -291,14 +333,41 @@ class SettingsDialog(QDialog):
         layout.addLayout(button_layout)
 
         self.setLayout(layout)
+
+        # --- Event Listeners ---
         self.note_type_combo.currentIndexChanged.connect(self.load_fields_for_selected_note_type)
+        self.save_prompt_button.clicked.connect(self.save_prompt)
+        self.delete_prompt_button.clicked.connect(self.delete_prompt)
+        self.provider_combo.currentIndexChanged.connect(self.update_api_options)
+
+        self.note_type_combo.currentIndexChanged.connect(self.load_fields_for_selected_note_type)
+
+        # Load prompts on startup
+        self.load_prompts()
+
+    def update_api_options(self):
+        """Update API fields based on selected provider."""
+        provider = self.provider_combo.currentText()
+        self.model_combo.clear()
+
+        if provider == "openai":
+            self.api_key_input.setPlaceholderText("Enter OpenAI API Key")
+            self.model_combo.addItems(["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o"])
+        elif provider == "deepseek":
+            self.api_key_input.setPlaceholderText("Enter DeepSeek API Key")
+            self.model_combo.addItems(["deepseek-chat", "deepseek-reasoner"])
 
     def load_config(self, config):
         self.config = config
-        self.api_key_input.setText(self.config["API_KEY"])
-        self.model_combo.setCurrentText(self.config["OPENAI_MODEL"])
-        self.temperature_input.setText(str(self.config["OPENAI_TEMPERATURE"]))
-        self.max_tokens_input.setText(str(self.config["OPENAI_MAX_TOKENS"]))
+        self.provider_combo.setCurrentText(self.config["AI_PROVIDER"])
+        self.api_key_input.setText(
+            self.config["OPENAI_API_KEY"]
+            if self.config["AI_PROVIDER"] == "openai"
+            else self.config["DEEPSEEK_API_KEY"]
+)
+        self.model_combo.setCurrentText(self.config["OPENAI_MODEL"] if self.config["AI_PROVIDER"] == "OpenAI" else self.config["DEEPSEEK_MODEL"])
+        self.temperature_input.setText(str(self.config["TEMPERATURE"]))
+        self.max_tokens_input.setText(str(self.config["MAX_TOKENS"]))
         self.prompt_edit.setPlainText(self.config["PROMPT"])
         
         # Load note types
@@ -315,30 +384,62 @@ class SettingsDialog(QDialog):
                 self.load_fields_for_selected_note_type()
 
     def load_fields_for_selected_note_type(self):
+        """Load available fields for the selected note type."""
         model_id = self.note_type_combo.currentData()
         if model_id:
             note_type = mw.col.models.get(model_id)
             if note_type:
                 fields = mw.col.models.field_names(note_type)
-                self.explanation_field_combo.clear()  # ✅ Only clear the Output Field dropdown
+                self.explanation_field_combo.clear()
                 self.explanation_field_combo.addItems(fields)
 
-                # Set the previously selected output field
+                # Set previously selected field
                 current_output = self.config["SELECTED_FIELDS"].get("output_field", "")
                 if current_output in fields:
                     self.explanation_field_combo.setCurrentText(current_output)
 
+    def load_prompts(self):
+        """Load saved prompts from YAML file."""
+        self.prompt_combo.clear()
+        prompts = load_prompt_templates()
+        for name in prompts.keys():
+            self.prompt_combo.addItem(name)
+
+    def save_prompt(self):
+        """Save current prompt as a template."""
+        name, ok = getText("Enter a name for the prompt:")
+        if ok and name:
+            prompts = load_prompt_templates()
+            prompts[name] = self.prompt_edit.toPlainText()
+            save_prompt_templates(prompts)
+            self.load_prompts()
+
+    def delete_prompt(self):
+        """Delete selected prompt."""
+        name = self.prompt_combo.currentText()
+        prompts = load_prompt_templates()
+        if name in prompts:
+            del prompts[name]
+            save_prompt_templates(prompts)
+            self.load_prompts()
+
     def get_updated_config(self):
+        """Return updated settings for saving."""
         return {
-            "note_type_id": self.note_type_combo.currentData(),
-            "API_KEY": self.api_key_input.text(),
-            "OPENAI_MODEL": self.model_combo.currentText(),
-            "OPENAI_TEMPERATURE": float(self.temperature_input.text()),
-            "OPENAI_MAX_TOKENS": int(self.max_tokens_input.text()),
+            "AI_PROVIDER": self.provider_combo.currentText(),
+            "OPENAI_API_KEY": self.api_key_input.text() if self.provider_combo.currentText() == "openai" else "",
+            "DEEPSEEK_API_KEY": self.api_key_input.text() if self.provider_combo.currentText() == "deepseek" else "",
+            "OPENAI_MODEL": self.model_combo.currentText() if self.provider_combo.currentText() == "openai" else "",
+            "DEEPSEEK_MODEL": self.model_combo.currentText() if self.provider_combo.currentText() == "deepseek" else "",
+            "OPENAI_TEMPERATURE": float(self.temperature_input.text()) if self.provider_combo.currentText() == "openai" else self.config["OPENAI_TEMPERATURE"],
+            "DEEPSEEK_TEMPERATURE": float(self.temperature_input.text()) if self.provider_combo.currentText() == "deepseek" else self.config["DEEPSEEK_TEMPERATURE"],
+            "OPENAI_MAX_TOKENS": int(self.max_tokens_input.text()) if self.provider_combo.currentText() == "openai" else self.config["OPENAI_MAX_TOKENS"],
+            "DEEPSEEK_MAX_TOKENS": int(self.max_tokens_input.text()) if self.provider_combo.currentText() == "deepseek" else self.config["DEEPSEEK_MAX_TOKENS"],
             "PROMPT": self.prompt_edit.toPlainText(),
             "SELECTED_FIELDS": {
                 "output_field": self.explanation_field_combo.currentText()
             }
         }
+
 
 gpt_grammar_explainer = GPTGrammarExplainer()
