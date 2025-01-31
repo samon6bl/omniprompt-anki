@@ -1,0 +1,19 @@
+{
+    "_version": 1.1,
+    "AI_PROVIDER": "openai",
+    "OPENAI_API_KEY": "",
+    "DEEPSEEK_API_KEY": "",
+    "API_ENDPOINT": "api.openai.com",
+    "OPENAI_MODEL": "gpt-4o-mini",
+    "DEEPSEEK_MODEL": "deepseek-chat",
+    "OPENAI_TEMPERATURE": 0.2,
+    "DEEPSEEK_TEMPERATURE": 0.2,
+    "OPENAI_MAX_TOKENS": 200,
+    "DEEPSEEK_MAX_TOKENS": 200,
+    "note_type_id": null,
+    "PROMPT": "Paste your prompt here.",
+    "SELECTED_FIELDS": {
+      "output_field": "Output"
+    }
+  }
+  

@@ -64,6 +64,15 @@ CONFIG_SCHEMA = {
     "required": ["AI_PROVIDER", "note_type_id"]
 }
 
+def _this_addon_dir():
+    return os.path.dirname(__file__)
+
+def load_prompt_templates():
+    templates_path = os.path.join(_this_addon_dir(), "prompt_templates.txt")
+
+def save_prompt_templates(templates):
+    templates_path = os.path.join(_this_addon_dir(), "prompt_templates.txt")
+
 def setup_logger():
     logger = logging.getLogger("OmniPromptAnki")
     logger.setLevel(logging.INFO)
@@ -137,7 +146,7 @@ logger = setup_logger()
 logger.setLevel(logging.INFO)
 
 def load_prompt_templates():
-    templates_path = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "prompt_templates.txt")
+    templates_path = os.path.join(os.path.dirname(__file__), "prompt_templates.txt")
     templates = {}
 
     if os.path.exists(templates_path):
@@ -162,7 +171,13 @@ def load_prompt_templates():
     return templates
 
 def save_prompt_templates(templates):
-    templates_path = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "prompt_templates.txt")
+    templates_path = os.path.join(os.path.dirname(__file__), "prompt_templates.txt")
+
+    # Optionally create the file if missing
+    # or just open in "w" which creates it automatically.
+    # But if the directory doesn’t exist, you need:
+    os.makedirs(os.path.dirname(templates_path), exist_ok=True)
+
     with open(templates_path, "w", encoding="utf-8", newline="\n") as file:
         for key, value in sorted(templates.items()):
             # Preserve exact content without stripping
@@ -178,7 +193,7 @@ def check_internet():
 class GPTGrammarExplainer:
     @property
     def addon_dir(self):
-        return os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki")
+        return os.path.dirname(__file__)
 
     def __init__(self):
         self.logger = logging.getLogger("OmniPromptAnki")
