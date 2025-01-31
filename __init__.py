@@ -1,15 +1,17 @@
 import requests
 import logging
 import os
-from aqt import mw
-from aqt.qt import QAction, QDialog, QVBoxLayout, QGroupBox, QComboBox, QLabel, QLineEdit, QDoubleValidator, QIntValidator, QFormLayout, QPushButton, QTextEdit, QHBoxLayout, QMessageBox, QProgressDialog, Qt
-from aqt.browser import Browser
-from anki.hooks import addHook
-from aqt.utils import showInfo
-from aqt.qt import QProgressDialog
-from aqt.utils import getText
 import time
 import socket
+from aqt import mw
+from aqt.qt import (
+    QAction, QDialog, QVBoxLayout, QGroupBox, QComboBox, QLabel,
+    QLineEdit, QDoubleValidator, QIntValidator, QFormLayout,
+    QPushButton, QTextEdit, QHBoxLayout, QMessageBox, QProgressDialog, Qt
+)
+from aqt.browser import Browser
+from anki.hooks import addHook
+from aqt.utils import showInfo, getText
 from PyQt6.QtCore import Qt
 from logging.handlers import RotatingFileHandler
 
@@ -34,7 +36,6 @@ DEFAULT_CONFIG = {
 }
 
 log_file = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "omnPrompt-anki.log")
-
 log_handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=2, encoding="utf-8")
 log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 log_handler.setFormatter(log_formatter)
@@ -132,7 +133,10 @@ class GPTGrammarExplainer:
                 logger.info(f"Sending API request: {safe_data}")
                 response = requests.post(url, headers=headers, json=data, timeout=timeout)
                 response.raise_for_status()
-                response_text = response.json().get("choices", [{}])[0].get("message", {}).get("content", "[Error: No response]")
+                try:
+                    response_text = response.json()
+                except ValueError:
+                    response_text = {"error": "Invalid JSON response"}
                 logger.info(f"API response: {response_text}")
                 return response_text
 
@@ -179,7 +183,7 @@ class GPTGrammarExplainer:
         menu.addAction(self.action)
 
     def update_selected_notes(self, browser):
-        selected_notes = list(set(browser.selectedNotes()))  # Remove duplicates
+        selected_notes = list(set(browser.selectedNotes()))
         note_type_id = self.config.get("note_type_id", None)
 
         if note_type_id is None:
@@ -187,7 +191,7 @@ class GPTGrammarExplainer:
             return
 
         target_field, ok = getText(
-            "Enter the field name where the explanation should be saved:",
+            "Confirm the field name where the generated data should be saved. 🚨 Warning: All existing data in the selected field will be replaced with AI-generated content.",
             default=self.config.get("SELECTED_FIELDS", {}).get("output_field", "Output")
         )
         if not ok:
@@ -338,6 +342,7 @@ class SettingsDialog(QDialog):
         self.save_prompt_button.clicked.connect(self.save_prompt)
         self.delete_prompt_button.clicked.connect(self.delete_prompt)
         self.provider_combo.currentIndexChanged.connect(self.update_api_options)
+        self.prompt_combo.currentIndexChanged.connect(self.update_prompt_from_template)
 
         # Load prompts
         self.load_prompts()
@@ -352,6 +357,12 @@ class SettingsDialog(QDialog):
         elif provider == "deepseek":
             self.api_key_input.setPlaceholderText("Enter DeepSeek API Key")
             self.model_combo.addItems(["deepseek-chat", "deepseek-reasoner"])
+
+    def update_prompt_from_template(self):
+        selected_template = self.prompt_combo.currentText()
+        templates = load_prompt_templates()
+        if selected_template in templates:
+            self.prompt_edit.setPlainText(templates[selected_template])
 
     def load_config(self, config):
         self.config = config
@@ -368,8 +379,6 @@ class SettingsDialog(QDialog):
             self.temperature_input.setText(str(self.config.get("DEEPSEEK_TEMPERATURE", 0.2)))
             self.max_tokens_input.setText(str(self.config.get("DEEPSEEK_MAX_TOKENS", 200)))
 
-        self.prompt_edit.setPlainText(self.config.get("PROMPT", ""))
-
         # Load note types
         self.note_type_combo.clear()
         for model in mw.col.models.all():
@@ -385,6 +394,11 @@ class SettingsDialog(QDialog):
         # Load fields
         self.load_fields_for_selected_note_type()
 
+        # Load prompts
+        self.load_prompts()
+        self.prompt_edit.setPlainText(self.config.get("PROMPT", ""))
+        self.update_prompt_from_template()
+
     def load_fields_for_selected_note_type(self):
         model_id = self.note_type_combo.currentData()
         if model_id:
@@ -399,29 +413,28 @@ class SettingsDialog(QDialog):
                     self.explanation_field_combo.setCurrentText(current_output)
 
     def load_prompts(self):
-        """Load saved prompts from TXT file."""
         self.prompt_combo.clear()
         prompts = load_prompt_templates()
         for name in prompts.keys():
             self.prompt_combo.addItem(name)
 
     def save_prompt(self):
-        """Save current prompt as a template."""
         name, ok = getText("Enter a name for the prompt:")
         if ok and name:
             prompts = load_prompt_templates()
             prompts[name] = self.prompt_edit.toPlainText()
             save_prompt_templates(prompts)
+            self.prompt_combo.setCurrentText(name)
             self.load_prompts()
 
     def delete_prompt(self):
-        """Delete selected prompt."""
         name = self.prompt_combo.currentText()
         prompts = load_prompt_templates()
         if name in prompts:
             del prompts[name]
             save_prompt_templates(prompts)
             self.load_prompts()
+            self.prompt_edit.clear()
 
     def get_updated_config(self):
         selected_note_type_index = self.note_type_combo.currentIndex()
