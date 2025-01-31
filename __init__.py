@@ -334,7 +334,7 @@ class SettingsDialog(QDialog):
         prompt_layout.addWidget(self.delete_prompt_button)
 
         self.prompt_edit = QTextEdit()
-        self.prompt_edit.setAcceptRichText(False) 
+        self.prompt_edit.setWordWrapMode(Qt.TextWrapMode.NoWrap) 
         prompt_layout.addWidget(QLabel("Prompt Template:"))
         prompt_layout.addWidget(self.prompt_edit)
 
@@ -382,7 +382,7 @@ class SettingsDialog(QDialog):
 
     def load_config(self, config):
         self.config = config
-        self.prompt_edit.setPlainText(self.config.get("PROMPT", "").strip()) 
+        self.prompt_edit.setPlainText(self.config.get("PROMPT", "").replace("\\n", "\n").strip())  # Ensure line breaks are shown
         self.provider_combo.setCurrentText(self.config["AI_PROVIDER"])
 
         if self.config["AI_PROVIDER"] == "openai":
@@ -468,7 +468,7 @@ class SettingsDialog(QDialog):
             "OPENAI_MAX_TOKENS": int(self.max_tokens_input.text()) if self.provider_combo.currentText() == "openai" else self.config["OPENAI_MAX_TOKENS"],
             "DEEPSEEK_MAX_TOKENS": int(self.max_tokens_input.text()) if self.provider_combo.currentText() == "deepseek" else self.config["DEEPSEEK_MAX_TOKENS"],
             "note_type_id": selected_note_type_id,
-            "PROMPT": self.prompt_edit.toPlainText().strip(),
+            "PROMPT": self.prompt_edit.toPlainText().replace("\n", "\\n").strip(),  # Explicitly preserve newlines
             "SELECTED_FIELDS": {
                 "output_field": self.explanation_field_combo.currentText()
             }
