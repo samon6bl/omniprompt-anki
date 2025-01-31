@@ -13,6 +13,17 @@
 
 ---
 
+## ⚠️ DeepSeek API Currently Not Working ⚠️
+
+At the moment, **DeepSeek API requests may fail or time out**, leading to incomplete or missing responses.  
+This issue is not related to **OmniPrompt-Anki**, but rather an ongoing problem with DeepSeek's API services.  
+
+**Check DeepSeek's current status here:** [DeepSeek API Status](https://status.deepseek.com/)
+
+We recommend using **OpenAI** as the AI provider until the issue is resolved.
+
+---
+
 ## User Interface
 
 To help you understand how **OmniPrompt-Anki** works, here are some key interface elements.
@@ -74,7 +85,7 @@ git clone https://github.com/stanamosov/omniprompt-anki.git
 
 ---
 
-## 📌 Examples of Use
+## Examples of Use
 
 ### **Automated Word Translations**  
 **Prompt Example:**  
@@ -104,7 +115,7 @@ Generate three example sentences using the word "{Front}" in different contexts.
 ```
 **Use Case:** Expands word usage knowledge, **reinforcing retention**.
 
-### 5️⃣ **Phonetic Breakdown & Pronunciation Tips**  
+### **Phonetic Breakdown & Pronunciation Tips**  
 **Prompt Example:**  
 ```plaintext
 Provide an IPA transcription and pronunciation tips for the word "{Front}". Explain difficult sounds for non-native speakers.
@@ -125,7 +136,7 @@ Explain the cultural nuances of the phrase "{Front}" in Japanese. When is it app
 ```
 **Use Case:** Ideal for learners of **Japanese, Chinese, and other languages** with strong contextual meanings.
 
-These are just **a few examples**, but you can **fully customize your prompts** to fit any learning style! 🎯
+These are just **a few examples**, but you can **fully customize your prompts** to fit any learning style!
 
 ---
 
