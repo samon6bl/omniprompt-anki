@@ -15,7 +15,7 @@ import socket
 from PyQt6.QtCore import Qt
 from logging.handlers import RotatingFileHandler
 
-AI_PROVIDERS = ["OpenAI", "DeepSeek"]
+AI_PROVIDERS = ["openai", "deepseek"]
 
 DEFAULT_CONFIG = {
     "AI_PROVIDER": "openai",  # Default provider
