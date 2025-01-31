@@ -15,10 +15,13 @@ from aqt.utils import showInfo, getText
 from PyQt6.QtCore import Qt
 from logging.handlers import RotatingFileHandler
 from PyQt6.QtGui import QTextOption
+import json
+from jsonschema import validate
 
 AI_PROVIDERS = ["openai", "deepseek"]
 
 DEFAULT_CONFIG = {
+    "_version": 1.1,
     "AI_PROVIDER": "openai",
     "OPENAI_API_KEY": "",
     "DEEPSEEK_API_KEY": "",
@@ -36,14 +39,102 @@ DEFAULT_CONFIG = {
     }
 }
 
-log_file = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "omnPrompt-anki.log")
-log_handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=2, encoding="utf-8")
-log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-log_handler.setFormatter(log_formatter)
+CONFIG_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "_version": {"type": "number"},
+        "AI_PROVIDER": {"enum": AI_PROVIDERS},
+        "OPENAI_API_KEY": {"type": "string"},
+        "DEEPSEEK_API_KEY": {"type": "string"},
+        "OPENAI_MODEL": {"type": "string"},
+        "DEEPSEEK_MODEL": {"type": "string"},
+        "OPENAI_TEMPERATURE": {"type": "number"},
+        "DEEPSEEK_TEMPERATURE": {"type": "number"},
+        "OPENAI_MAX_TOKENS": {"type": "integer"},
+        "DEEPSEEK_MAX_TOKENS": {"type": "integer"},
+        "note_type_id": {"type": ["number", "null"]},
+        "PROMPT": {"type": "string"},
+        "SELECTED_FIELDS": {
+            "type": "object",
+            "properties": {
+                "output_field": {"type": "string"}
+            }
+        }
+    },
+    "required": ["AI_PROVIDER", "note_type_id"]
+}
 
-logger = logging.getLogger("OmniPromptAnki")
+def setup_logger():
+    logger = logging.getLogger("OmniPromptAnki")
+    logger.setLevel(logging.INFO)
+
+    log_file = os.path.join(
+        mw.addonManager.addonsFolder(), 
+        "omniprompt-anki", 
+        "omnPrompt-anki.log"
+    )
+
+    handler = SafeAnkiRotatingFileHandler(
+        filename=log_file,
+        mode='a',
+        maxBytes=5*1024*1024,
+        backupCount=2,
+        encoding='utf-8',
+        delay=True
+    )
+
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    
+    if not logger.handlers:
+        logger.addHandler(handler)
+    
+    return logger
+
+class SafeAnkiRotatingFileHandler(RotatingFileHandler):
+    """Custom handler for Anki environment compatibility"""
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except Exception as e:
+            print(f"Log write failed: {str(e)}")
+
+    def shouldRollover(self, record):
+        try:
+            return super().shouldRollover(record)
+        except Exception as e:
+            print(f"Log rotation check failed: {str(e)}")
+            return 0
+            
+    def doRollover(self):
+        try:
+            super().doRollover()
+            print("Successfully rotated log file")
+        except PermissionError:
+            print("Couldn't rotate log - file in use")
+        except Exception as e:
+            print(f"Log rotation failed: {str(e)}")
+
+def check_log_size():
+    log_path = os.path.join(
+        mw.addonManager.addonsFolder(),
+        "omniprompt-anki",
+        "omnPrompt-anki.log"
+    )
+    
+    try:
+        size = os.path.getsize(log_path)
+        if size > 4.5 * 1024 * 1024:  # 4.5MB warning
+            print("Log file approaching maximum size")
+    except:
+        pass
+
+# Run check periodically (every 100 card updates)
+addHook("reset", check_log_size)
+
+# Initialize logger at module level
+logger = setup_logger()
 logger.setLevel(logging.INFO)
-logger.addHandler(log_handler)
 
 def load_prompt_templates():
     templates_path = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "prompt_templates.txt")
@@ -85,10 +176,64 @@ def check_internet():
         return False
 
 class GPTGrammarExplainer:
+    @property
+    def addon_dir(self):
+        return os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki")
+
     def __init__(self):
+        self.logger = logging.getLogger("OmniPromptAnki")
         self.config = self.load_config()
         addHook("browser.setupMenus", self.on_browser_will_show)
         mw.addonManager.setConfigAction(__name__, self.show_settings_dialog)
+
+    def save_config(self):
+        try:
+            validated = self.validate_config(self.config)
+            # **Apply migrations** so that our config's _version is up-to-date
+            migrated = self.migrate_config(validated)
+
+            if migrated.get("_version") != DEFAULT_CONFIG["_version"]:
+                # Only if you want to be strict about matching exactly the default
+                # version, but typically you'd allow >= required version or
+                # remove this check.
+                self.emergency_log_cleanup()
+                showInfo("Configuration version mismatch. Reset to defaults.")
+                return
+
+            mw.addonManager.writeConfig(__name__, migrated)
+        except Exception as e:
+            self.logger.error(f"Config save failed: {str(e)}")
+            self.restore_config()
+
+    def emergency_log_cleanup(self):
+        """Safer log recovery with fallbacks"""
+        try:
+            # Clear existing handlers
+            for handler in self.logger.handlers[:]:
+                self.logger.removeHandler(handler)
+                handler.close()
+                
+            # Reset log file
+            log_path = os.path.join(self.addon_dir, "omnPrompt-anki.log")
+            with open(log_path, 'w') as f:
+                f.truncate()
+                
+            # Reinitialize logging
+            new_handler = SafeAnkiRotatingFileHandler(
+                filename=log_path,
+                mode='a',
+                maxBytes=5*1024*1024,
+                backupCount=2,
+                encoding='utf-8',
+                delay=True
+            )
+            new_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+            self.logger.addHandler(new_handler)
+            
+        except Exception as e:
+            print(f"Emergency cleanup failed: {str(e)}")
+            # Fallback to stdout logging
+            self.logger.addHandler(logging.StreamHandler(sys.stdout))
 
     def make_openai_request(self, prompt):
         url = "https://api.openai.com/v1/chat/completions"
@@ -183,10 +328,58 @@ class GPTGrammarExplainer:
             self.save_config()
 
     def load_config(self):
-        return {**DEFAULT_CONFIG, **(mw.addonManager.getConfig(__name__) or {})}
+        raw_config = mw.addonManager.getConfig(__name__) or {}
+        validated = self.validate_config(raw_config)
+        return self.migrate_config(validated)
+
+    def migrate_config(self, config):
+    # Start with default config
+        migrated = DEFAULT_CONFIG.copy()
+        
+        # Merge existing config values
+        migrated.update(config)
+        
+        # Version-specific migrations
+        if migrated["_version"] < 1.1:
+            migrated.setdefault("SELECTED_FIELDS", DEFAULT_CONFIG["SELECTED_FIELDS"])
+            migrated["_version"] = 1.1
+        
+        return migrated
+
+    def validate_config(self, config):
+        try:
+            validate(instance=config, schema=CONFIG_SCHEMA)
+            return config
+        except Exception as e:
+            self.logger.error(f"Config validation error: {str(e)}")
+            self.logger.info("Reverting to default configuration")
+            return DEFAULT_CONFIG.copy()  # Return a fresh copy
+        
+    def backup_config(self):
+        backup_path = os.path.join(self.addon_dir, "config_backup.json")
+        with open(backup_path, "w") as f:
+            json.dump(self.config, f)
+
+    def restore_config(self):
+        backup_path = os.path.join(self.addon_dir, "config_backup.json")
+        if os.path.exists(backup_path):
+            with open(backup_path, "r") as f:
+                self.config = json.load(f)
+            self.save_config()
 
     def save_config(self):
-        mw.addonManager.writeConfig(__name__, self.config)
+        try:
+            validated = self.validate_config(self.config)
+            validated = self.migrate_config(validated)  # ensure version is correct
+            if validated.get("_version") != DEFAULT_CONFIG["_version"]:
+                self.emergency_log_cleanup()
+                showInfo("Configuration version mismatch. Reset to defaults.")
+                return
+                
+            mw.addonManager.writeConfig(__name__, validated)
+        except Exception as e:
+            self.logger.error(f"Config save failed: {str(e)}")
+            self.restore_config()
 
     def on_browser_will_show(self, browser):
         menu = browser.form.menuEdit
@@ -218,6 +411,8 @@ class GPTGrammarExplainer:
 
         processed_notes = 0
         modified_fields = 0
+        error_count = 0
+        MAX_ERROR_REPORTS = 5  # Limit error popups to prevent spamming
 
         for i, note_id in enumerate(selected_notes):
             if progress.wasCanceled():
@@ -230,25 +425,49 @@ class GPTGrammarExplainer:
                 continue
 
             try:
+                # Generate AI response
                 prompt = self.config["PROMPT"].format(**note)
                 explanation = self.generate_ai_response(prompt)
                 target_field = self.config["SELECTED_FIELDS"]["output_field"]
 
-                # ✅ FIX: Ensure `explanation` is a string before assigning
+                # Update note field
                 if explanation and isinstance(explanation, str):
                     if note[target_field] != explanation:
                         note[target_field] = explanation
                         mw.col.update_note(note)
                         modified_fields += 1
                 else:
-                    logger.error(f"Invalid explanation received: {explanation}")
-                    showInfo(f"Error: Invalid AI response for note {note.id}. Check logs.")
+                    error_count += 1
+                    if error_count <= MAX_ERROR_REPORTS:
+                        showInfo(f"Invalid AI response for note {note.id}. Check logs.")
+                    self.logger.error(f"Invalid explanation received: {explanation}")
 
                 processed_notes += 1
+
+                # Safe logging with emergency fallback
+                try:
+                    self.logger.info(f"Processed note {note_id}")
+                except Exception as log_error:
+                    print(f"Logging system failure: {log_error}")
+                    self.emergency_log_cleanup()
+
             except KeyError as e:
-                logger.error(f"Missing field {e} in note {note.id}")
+                error_count += 1
+                self.logger.error(f"Missing field {e} in note {note.id}")
+                if error_count <= MAX_ERROR_REPORTS:
+                    showInfo(f"Missing field {e} in note {note.id}")
+            except Exception as e:
+                error_count += 1
+                self.logger.error(f"Critical error processing note {note.id}: {str(e)}")
+                if error_count <= MAX_ERROR_REPORTS:
+                    showInfo(f"Error processing note {note.id}")
 
         progress.setValue(len(selected_notes))
+        
+        # Final error summary
+        if error_count > MAX_ERROR_REPORTS:
+            showInfo(f"{error_count - MAX_ERROR_REPORTS} additional errors occurred. Check logs for details.")
+        
         self.show_result(processed_notes, len(selected_notes), modified_fields)
 
     def show_result(self, processed, total, modified_fields):
