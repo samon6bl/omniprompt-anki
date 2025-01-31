@@ -117,6 +117,7 @@ class GPTGrammarExplainer:
         return self.send_request(url, headers, data)
 
     def send_request(self, url, headers, data):
+        """Generalized API request function with retry mechanism"""
         retries = 3
         backoff_factor = 2
         timeout = 20
@@ -131,14 +132,23 @@ class GPTGrammarExplainer:
                 safe_data = {k: v for k, v in data.items() if k != "messages"}
                 safe_data["Authorization"] = "[REDACTED]"
                 logger.info(f"Sending API request: {safe_data}")
+
                 response = requests.post(url, headers=headers, json=data, timeout=timeout)
                 response.raise_for_status()
-                try:
-                    response_text = response.json()
-                except ValueError:
-                    response_text = {"error": "Invalid JSON response"}
-                logger.info(f"API response: {response_text}")
-                return response_text
+                response_json = response.json()
+
+                # ✅ Fix: Extract only the content from the first choice
+                if "choices" in response_json and response_json["choices"]:
+                    message = response_json["choices"][0].get("message", {}).get("content", "").strip()
+                    if message:
+                        logger.info(f"API response content: {message}")
+                        return message  # ✅ Return only the extracted text
+                    else:
+                        logger.error(f"Empty response message: {response_json}")
+                        return "[Error: Empty response message]"
+
+                logger.error(f"Invalid API response structure: {response_json}")
+                return "[Error: Unexpected response format]"
 
             except requests.exceptions.Timeout:
                 logger.warning(f"Timeout error. Retrying attempt {attempt + 1}/{retries}...")
