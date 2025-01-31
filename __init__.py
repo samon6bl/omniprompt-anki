@@ -129,7 +129,7 @@ class GPTGrammarExplainer:
 
         for attempt in range(retries):
             try:
-                safe_data = {k: v for k, v in data.items() if k != "messages"}
+                safe_data = data.copy()
                 safe_data["Authorization"] = "[REDACTED]"
                 logger.info(f"Sending API request: {safe_data}")
 
