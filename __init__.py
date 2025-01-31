@@ -191,7 +191,7 @@ class GPTGrammarExplainer:
             return
 
         target_field, ok = getText(
-            "Confirm the field name where the generated data should be saved. 🚨 Warning: All existing data in the selected field will be replaced with AI-generated content.",
+            "Enter the field name where the generated data should be saved:",
             default=self.config.get("SELECTED_FIELDS", {}).get("output_field", "Output")
         )
         if not ok:
@@ -222,10 +222,15 @@ class GPTGrammarExplainer:
                 explanation = self.generate_ai_response(prompt)
                 target_field = self.config["SELECTED_FIELDS"]["output_field"]
 
-                if note[target_field] != explanation:
-                    note[target_field] = explanation
-                    mw.col.update_note(note)
-                    modified_fields += 1
+                # ✅ FIX: Ensure `explanation` is a string before assigning
+                if explanation and isinstance(explanation, str):
+                    if note[target_field] != explanation:
+                        note[target_field] = explanation
+                        mw.col.update_note(note)
+                        modified_fields += 1
+                else:
+                    logger.error(f"Invalid explanation received: {explanation}")
+                    showInfo(f"Error: Invalid AI response for note {note.id}. Check logs.")
 
                 processed_notes += 1
             except KeyError as e:
