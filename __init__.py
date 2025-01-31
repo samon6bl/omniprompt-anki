@@ -1,4 +1,3 @@
-import yaml
 import requests
 import logging
 import os
@@ -45,21 +44,38 @@ logger = logging.getLogger("OmniPromptAnki")
 logger.setLevel(logging.INFO)
 logger.addHandler(log_handler)
 
-# --- Load & Save Prompt Templates ---
 def load_prompt_templates():
-    templates_path = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "prompt_templates.yaml")
-    try:
-        if os.path.exists(templates_path):
-            with open(templates_path, "r", encoding="utf-8") as file:
-                return yaml.safe_load(file) or {}
-    except yaml.YAMLError as e:
-        logger.error(f"Error loading prompt templates: {e}")
-    return {}
+    templates_path = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "prompt_templates.txt")
+    templates = {}
+
+    if os.path.exists(templates_path):
+        with open(templates_path, "r", encoding="utf-8") as file:
+            current_key = None
+            current_value = []
+            for line in file:
+                line = line.strip()
+                if not line or line.startswith("#"):  # Ignore empty lines & comments
+                    continue
+                if line.startswith("[") and line.endswith("]"):  # Section header
+                    if current_key and current_value:
+                        templates[current_key] = "\n".join(current_value)
+                    current_key = line[1:-1]  # Remove brackets
+                    current_value = []
+                else:
+                    current_value.append(line)
+
+            if current_key and current_value:  # Save last entry
+                templates[current_key] = "\n".join(current_value)
+
+    return templates
+
 
 def save_prompt_templates(templates):
-    templates_path = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "prompt_templates.yaml")
+    templates_path = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "prompt_templates.txt")
     with open(templates_path, "w", encoding="utf-8") as file:
-        yaml.dump(templates, file, allow_unicode=True, default_flow_style=False)
+        for key, value in templates.items():
+            file.write(f"[{key}]\n{value}\n\n")  # Format each prompt as a section
+
 
 def check_internet():
     try:
@@ -138,17 +154,25 @@ class GPTGrammarExplainer:
                 return "[Error: API request failed]"
 
         return "[Error: API request failed after multiple attempts]"
-    
+        
     def generate_ai_response(self, prompt):
         """Determine which AI provider to use"""
-        provider = self.config.get("AI_PROVIDER", "OpenAI")
+        provider = self.config.get("AI_PROVIDER", "openai")
+
         if provider == "openai":
             return self.make_openai_request(prompt)
+        
         elif provider == "deepseek":
+            if not self.config.get("DEEPSEEK_MODEL"):
+                logger.error("DeepSeek model is missing!")
+                return "[Error: No DeepSeek model selected]"
+
             return self.make_deepseek_request(prompt)
+        
         else:
             logger.error(f"Invalid AI provider: {provider}")
             return "[Error: Invalid AI provider]"
+
 
     def show_settings_dialog(self):
         """Open settings UI"""
@@ -174,18 +198,61 @@ class GPTGrammarExplainer:
         self.action.triggered.connect(lambda: self.update_selected_notes(browser))
         menu.addAction(self.action)
 
-    def update_selected_notes(self, browser):  # ✅ Ensure this is inside the class
+    def update_selected_notes(self, browser):
         selected_notes = browser.selectedNotes()
-        note_type_id = self.config["note_type_id"]
+        note_type_id = self.config.get("note_type_id", None)  # ✅ Use .get() to avoid KeyError
+
+        if note_type_id is None:
+            showWarning("No note type selected! Please configure the note type in settings.")
+            return  # Exit if no note type is set
+
         processed_notes = 0
         modified_fields = 0
 
         # Ask user to confirm or select a field
-        target_field, ok = getText("Enter the field name where the explanation should be saved:", default=self.config["SELECTED_FIELDS"]["output_field"])
+        target_field, ok = getText(
+            "Enter the field name where the explanation should be saved:",
+            default=self.config.get("SELECTED_FIELDS", {}).get("output_field", "Output")
+        )
         if not ok:
             return  # User canceled
 
         self.config["SELECTED_FIELDS"]["output_field"] = target_field  # Save selected field
+
+        # Create a progress dialog
+        progress = QProgressDialog("Updating cards with OmniPrompt...", "Cancel", 0, len(selected_notes), mw)
+        progress.setWindowTitle("OmniPrompt Processing")
+        progress.setMinimumDuration(0)  # Show instantly
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+
+        for i, note_id in enumerate(selected_notes):
+            if progress.wasCanceled():
+                break  # Allow users to cancel
+
+            progress.setValue(i)
+            note = mw.col.get_note(note_id)
+
+            # Skip if the note type doesn't match
+            if note.note_type()['id'] != note_type_id:
+                continue
+
+            try:
+                prompt = self.config["PROMPT"].format(**note)
+                explanation = self.generate_ai_response(prompt)
+                target_field = self.config["SELECTED_FIELDS"]["output_field"]
+
+                if note[target_field] != explanation:
+                    note[target_field] = explanation
+                    mw.col.update_note(note)
+                    modified_fields += 1
+
+                processed_notes += 1
+            except KeyError as e:
+                logger.error(f"Missing field {e} in note {note.id}")
+
+        progress.setValue(len(selected_notes))  # Finish progress
+
+        self.show_result(processed_notes, len(selected_notes), modified_fields)
 
         # Create a progress dialog
         progress = QProgressDialog("Updating cards with OmniPrompt...", "Cancel", 0, len(selected_notes), mw)
@@ -358,30 +425,42 @@ class SettingsDialog(QDialog):
             self.model_combo.addItems(["deepseek-chat", "deepseek-reasoner"])
 
     def load_config(self, config):
+        """Load saved settings into the UI"""
         self.config = config
         self.provider_combo.setCurrentText(self.config["AI_PROVIDER"])
-        self.api_key_input.setText(
-            self.config["OPENAI_API_KEY"]
-            if self.config["AI_PROVIDER"] == "openai"
-            else self.config["DEEPSEEK_API_KEY"]
-)
-        self.model_combo.setCurrentText(self.config["OPENAI_MODEL"] if self.config["AI_PROVIDER"] == "OpenAI" else self.config["DEEPSEEK_MODEL"])
-        self.temperature_input.setText(str(self.config["TEMPERATURE"]))
-        self.max_tokens_input.setText(str(self.config["MAX_TOKENS"]))
-        self.prompt_edit.setPlainText(self.config["PROMPT"])
-        
+
+        if self.config["AI_PROVIDER"] == "openai":
+            self.api_key_input.setText(self.config.get("OPENAI_API_KEY", ""))
+            self.model_combo.setCurrentText(self.config.get("OPENAI_MODEL", ""))
+            self.temperature_input.setText(str(self.config.get("OPENAI_TEMPERATURE", 0.2)))
+            self.max_tokens_input.setText(str(self.config.get("OPENAI_MAX_TOKENS", 200)))
+        else:  # DeepSeek
+            self.api_key_input.setText(self.config.get("DEEPSEEK_API_KEY", ""))
+            self.model_combo.setCurrentText(self.config.get("DEEPSEEK_MODEL", ""))
+            self.temperature_input.setText(str(self.config.get("DEEPSEEK_TEMPERATURE", 0.2)))
+            self.max_tokens_input.setText(str(self.config.get("DEEPSEEK_MAX_TOKENS", 200)))
+
+        self.prompt_edit.setPlainText(self.config.get("PROMPT", ""))
+
         # Load note types
         self.note_type_combo.clear()
         for model in mw.col.models.all():
             self.note_type_combo.addItem(model['name'], userData=model['id'])
-        
+
         # Set selected note type
         current_id = self.config.get("note_type_id")
         if current_id:
             index = self.note_type_combo.findData(current_id)
             if index >= 0:
                 self.note_type_combo.setCurrentIndex(index)
-                self.load_fields_for_selected_note_type()
+
+        # Load available fields for the selected note type
+        self.load_fields_for_selected_note_type()
+
+        # Set previously selected field
+        current_output = self.config["SELECTED_FIELDS"].get("output_field", "")
+        if current_output:
+            self.explanation_field_combo.setCurrentText(current_output)
 
     def load_fields_for_selected_note_type(self):
         """Load available fields for the selected note type."""
@@ -399,7 +478,7 @@ class SettingsDialog(QDialog):
                     self.explanation_field_combo.setCurrentText(current_output)
 
     def load_prompts(self):
-        """Load saved prompts from YAML file."""
+        """Load saved prompts from TXT file."""
         self.prompt_combo.clear()
         prompts = load_prompt_templates()
         for name in prompts.keys():
@@ -425,6 +504,9 @@ class SettingsDialog(QDialog):
 
     def get_updated_config(self):
         """Return updated settings for saving."""
+        selected_note_type_index = self.note_type_combo.currentIndex()
+        selected_note_type_id = self.note_type_combo.itemData(selected_note_type_index)
+
         return {
             "AI_PROVIDER": self.provider_combo.currentText(),
             "OPENAI_API_KEY": self.api_key_input.text() if self.provider_combo.currentText() == "openai" else "",
@@ -435,9 +517,10 @@ class SettingsDialog(QDialog):
             "DEEPSEEK_TEMPERATURE": float(self.temperature_input.text()) if self.provider_combo.currentText() == "deepseek" else self.config["DEEPSEEK_TEMPERATURE"],
             "OPENAI_MAX_TOKENS": int(self.max_tokens_input.text()) if self.provider_combo.currentText() == "openai" else self.config["OPENAI_MAX_TOKENS"],
             "DEEPSEEK_MAX_TOKENS": int(self.max_tokens_input.text()) if self.provider_combo.currentText() == "deepseek" else self.config["DEEPSEEK_MAX_TOKENS"],
+            "note_type_id": selected_note_type_id,  # ✅ Ensure the note type ID is saved
             "PROMPT": self.prompt_edit.toPlainText(),
             "SELECTED_FIELDS": {
-                "output_field": self.explanation_field_combo.currentText()
+                "output_field": self.explanation_field_combo.currentText()  # ✅ Save output field
             }
         }
 

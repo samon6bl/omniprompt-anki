@@ -1,0 +1,8 @@
+[default]
+Generate an explanation for {word} including examples.
+
+[detailed]
+Explain {word} in-depth with etymology, examples, and grammar.
+
+[synonyms]
+Find synonyms for {word} and provide examples.
