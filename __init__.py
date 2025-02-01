@@ -9,6 +9,7 @@ from jsonschema import validate
 from anki.errors import NotFoundError 
 from aqt.utils import showInfo
 from PyQt6.QtCore import QTimer
+
 from aqt import mw
 from aqt.qt import (
     QAction, QDialog, QVBoxLayout, QGroupBox, QComboBox, QLabel,
@@ -39,7 +40,6 @@ DEFAULT_CONFIG = {
     "DEEPSEEK_TEMPERATURE": 0.2,
     "OPENAI_MAX_TOKENS": 200,
     "DEEPSEEK_MAX_TOKENS": 200,
-    "DEEPSEEK_STREAM": True,
     "note_type_id": None,
     "PROMPT": "Paste your prompt here.",
     "SELECTED_FIELDS": {
@@ -60,7 +60,6 @@ CONFIG_SCHEMA = {
         "DEEPSEEK_TEMPERATURE": {"type": "number"},
         "OPENAI_MAX_TOKENS": {"type": "integer"},
         "DEEPSEEK_MAX_TOKENS": {"type": "integer"},
-        "DEEPSEEK_STREAM": {"type": "boolean"},
         "note_type_id": {"type": ["number", "null"]},
         "PROMPT": {"type": "string"},
         "SELECTED_FIELDS": {
@@ -203,6 +202,7 @@ addHook("reset", check_log_size)
 # Initialize logger at module level
 logger = setup_logger()
 
+
 # -------------------------------
 # Background Worker for Note Processing
 # -------------------------------
@@ -308,6 +308,25 @@ class GPTGrammarExplainer:
         return self.send_request(url, headers, data)
 
     def make_deepseek_request(self, prompt: str) -> str:
+        """
+        Constructs and sends a request to DeepSeek's Chat Completions API.
+        Supports both non-streaming and streaming responses based on configuration.
+        
+        Official (non-streaming) example:
+        curl https://api.deepseek.com/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer <DeepSeek API Key>" \
+            -d '{
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": "Hello!"}
+                ],
+                "stream": false
+                }'
+        
+        If streaming is enabled, the response is expected to be sent as a stream.
+        """
         url = "https://api.deepseek.com/chat/completions"
         headers = {
             "Content-Type": "application/json",
@@ -315,14 +334,11 @@ class GPTGrammarExplainer:
             "Authorization": f"Bearer {self.config['DEEPSEEK_API_KEY']}"
         }
         
-        # Get the stream parameter from config and ensure it is a boolean.
-        stream_value = self.config.get("DEEPSEEK_STREAM", False)
-        if isinstance(stream_value, str):
-            # Convert strings "true"/"false" (case-insensitive) to booleans.
-            stream_flag = stream_value.lower() == "true"
-        else:
-            stream_flag = bool(stream_value)
+        # Use a new config parameter to control streaming (default: False)
+        stream_flag = self.config.get("DEEPSEEK_STREAM", False)
         
+        # For streaming mode, you might want to include a system message if desired.
+        # Here we include a default system message; adjust as needed.
         data = {
             "model": self.config["DEEPSEEK_MODEL"],
             "messages": [
@@ -342,13 +358,18 @@ class GPTGrammarExplainer:
             logger.exception("DeepSeek API request failed:")
             return "[Error: API request failed]"
         
+        # If streaming is enabled, process the streamed response.
         if stream_flag:
             final_message = ""
             try:
+                # Iterate over each line in the streamed response.
                 for line in response.iter_lines():
                     if line:
                         try:
+                            # Each line is expected to be a JSON object.
                             json_line = json.loads(line.decode("utf-8"))
+                            # Depending on DeepSeek's streaming format, you might need to adjust this.
+                            # For example, if the streaming response returns partial deltas:
                             delta = json_line.get("choices", [{}])[0].get("delta", {}).get("content", "")
                             final_message += delta
                         except Exception as stream_e:
@@ -359,12 +380,14 @@ class GPTGrammarExplainer:
                 logger.exception("Error reading streamed response from DeepSeek:")
                 return "[Error: API request failed during streaming]"
         else:
+            # Non-streaming mode: attempt to parse the full JSON response.
             try:
                 response_json = response.json()
             except Exception as e:
                 logger.exception("Failed to decode JSON response from DeepSeek:")
                 return "[Error: Unable to parse response]"
             
+            # Check for a response structure similar to OpenAI's (adjust as needed)
             if "choices" in response_json and response_json["choices"]:
                 message = response_json["choices"][0].get("message", {}).get("content", "").strip()
                 if message:
