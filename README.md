@@ -4,8 +4,8 @@
 
 ## Features
 ✅ **AI-Powered Explanations** – Uses LLM models to generate your card field content.  
-✅ **Supports OpenAI & DeepSeek** – Choose your AI provider.
-✅ **Custom Prompts** – Configure and save personalized prompt templates.
+✅ **Supports OpenAI & DeepSeek** – Choose your AI provider.  
+✅ **Custom Prompts** – Configure and save personalized prompt templates.  
 ✅ **Batch Processing** – Process multiple notes at once.  
 ✅ **Progress Tracking** – A progress bar shows real-time updates for batch processing.  
 ✅ **Field Selection** – Choose which field to update **before running**.  

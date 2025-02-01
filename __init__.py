@@ -17,6 +17,7 @@ from logging.handlers import RotatingFileHandler
 from PyQt6.QtGui import QTextOption
 import json
 from jsonschema import validate
+import sys
 
 AI_PROVIDERS = ["openai", "deepseek"]
 
@@ -77,11 +78,8 @@ def setup_logger():
     logger = logging.getLogger("OmniPromptAnki")
     logger.setLevel(logging.INFO)
 
-    log_file = os.path.join(
-        mw.addonManager.addonsFolder(), 
-        "omniprompt-anki", 
-        "omnPrompt-anki.log"
-    )
+    addon_dir = os.path.dirname(__file__) 
+    log_file = os.path.join(addon_dir, "omnPrompt-anki.log")
 
     handler = SafeAnkiRotatingFileHandler(
         filename=log_file,
