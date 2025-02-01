@@ -1,26 +1,32 @@
-import requests
-import logging
-import os
-import time
-import socket
-import sys
-import json
-from jsonschema import validate
-from anki.errors import NotFoundError 
-from aqt.utils import showInfo
-from PyQt6.QtCore import QTimer
+"""
+OmniPrompt Anki Add‑on
 
-from aqt import mw
-from aqt.qt import (
-    QAction, QDialog, QVBoxLayout, QGroupBox, QComboBox, QLabel,
-    QLineEdit, QDoubleValidator, QIntValidator, QFormLayout,
-    QPushButton, QTextEdit, QHBoxLayout, QMessageBox, QProgressDialog, Qt
-)
+Features:
+- A top‑level “OmniPrompt” menu with “Settings” and “About” items.
+- A browser context‑menu action “Update with OmniPrompt” (right‑click a note).
+- A Settings dialog that lets the user set AI provider, API key, temperature, and max tokens,
+  plus a “View Log” button.
+- An Update dialog that opens when “Update with OmniPrompt” is triggered. The dialog’s left panel
+  lets the user edit the prompt template, choose from saved prompts (using triple‑brackets delimiters),
+  and choose the output field (populated automatically from the note type of the selected notes). The
+  right panel displays a table with progress, the note’s original field content, and the generated content.
+- The update process automatically writes the generated text to the selected output field.
+"""
+
+import requests, logging, os, time, socket, sys, json
+from jsonschema import validate
+from anki.errors import NotFoundError
+from aqt.utils import showInfo, getText
+from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal, QMetaObject
+from PyQt6.QtGui import QDoubleValidator, QIntValidator, QTextOption
+# Note: In PyQt6, QAction is imported from PyQt6.QtGui.
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QGroupBox, QComboBox, QLabel,
+                             QLineEdit, QFormLayout, QPushButton, QTextEdit, QHBoxLayout,
+                             QMessageBox, QProgressDialog, QWidget, QTableWidget, QTableWidgetItem)
+from aqt import mw, gui_hooks
 from aqt.browser import Browser
 from anki.hooks import addHook
-from aqt.utils import showInfo, getText
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QMetaObject
-from PyQt6.QtGui import QTextOption
 from logging.handlers import RotatingFileHandler
 
 # -------------------------------
@@ -36,11 +42,8 @@ DEFAULT_CONFIG = {
     "API_ENDPOINT": "api.openai.com",
     "OPENAI_MODEL": "gpt-4o-mini",
     "DEEPSEEK_MODEL": "deepseek-chat",
-    "OPENAI_TEMPERATURE": 0.2,
-    "DEEPSEEK_TEMPERATURE": 0.2,
-    "OPENAI_MAX_TOKENS": 200,
-    "DEEPSEEK_MAX_TOKENS": 200,
-    "note_type_id": None,
+    "TEMPERATURE": 0.2,     # common for all providers
+    "MAX_TOKENS": 200,      # common for all providers
     "PROMPT": "Paste your prompt here.",
     "SELECTED_FIELDS": {
         "output_field": "Output"
@@ -56,11 +59,8 @@ CONFIG_SCHEMA = {
         "DEEPSEEK_API_KEY": {"type": "string"},
         "OPENAI_MODEL": {"type": "string"},
         "DEEPSEEK_MODEL": {"type": "string"},
-        "OPENAI_TEMPERATURE": {"type": "number"},
-        "DEEPSEEK_TEMPERATURE": {"type": "number"},
-        "OPENAI_MAX_TOKENS": {"type": "integer"},
-        "DEEPSEEK_MAX_TOKENS": {"type": "integer"},
-        "note_type_id": {"type": ["number", "null"]},
+        "TEMPERATURE": {"type": "number"},
+        "MAX_TOKENS": {"type": "integer"},
         "PROMPT": {"type": "string"},
         "SELECTED_FIELDS": {
             "type": "object",
@@ -69,39 +69,31 @@ CONFIG_SCHEMA = {
             }
         }
     },
-    "required": ["AI_PROVIDER", "note_type_id"]
+    "required": ["AI_PROVIDER"]
 }
-
 
 # -------------------------------
 # Helper Functions for Prompts
 # -------------------------------
 def safe_show_info(message: str) -> None:
-    """
-    Invokes showInfo(message) on the main (GUI) thread using QTimer.singleShot.
-    This ensures the UI call is executed in the proper thread.
-    """
     QTimer.singleShot(0, lambda: showInfo(message))
-
 
 def load_prompt_templates() -> dict:
     """
-    Load prompt templates from a file.
+    Load prompt templates from a file using triple‑brackets ([[[ ... ]]] as delimiters).
     """
     templates_path = os.path.join(os.path.dirname(__file__), "prompt_templates.txt")
     templates = {}
-
     if os.path.exists(templates_path):
         with open(templates_path, "r", encoding="utf-8") as file:
             current_key = None
             current_value = []
             for line in file:
-                # Only remove trailing newlines, preserve all other whitespace
                 line = line.rstrip('\n')
-                if line.startswith("[") and line.endswith("]"):
+                if line.startswith("[[[") and line.endswith("]]]"):
                     if current_key is not None:
                         templates[current_key] = "\n".join(current_value)
-                    current_key = line[1:-1]
+                    current_key = line[3:-3].strip()
                     current_value = []
                 else:
                     current_value.append(line)
@@ -109,17 +101,15 @@ def load_prompt_templates() -> dict:
                 templates[current_key] = "\n".join(current_value)
     return templates
 
-
 def save_prompt_templates(templates: dict) -> None:
     """
-    Save prompt templates to a file.
+    Save prompt templates to a file using triple‑brackets ([[[ ... ]]] as delimiters).
     """
     templates_path = os.path.join(os.path.dirname(__file__), "prompt_templates.txt")
     os.makedirs(os.path.dirname(templates_path), exist_ok=True)
     with open(templates_path, "w", encoding="utf-8", newline="\n") as file:
         for key, value in sorted(templates.items()):
-            file.write(f"[{key}]\n{value}\n\n")
-
+            file.write(f"[[[{key}]]]\n{value}\n\n")
 
 def check_internet() -> bool:
     try:
@@ -128,23 +118,20 @@ def check_internet() -> bool:
     except OSError:
         return False
 
-
 # -------------------------------
 # Logger Setup
 # -------------------------------
 def get_addon_dir() -> str:
     raw_dir = os.path.dirname(__file__)
     parent = os.path.dirname(raw_dir)
-    base = os.path.basename(raw_dir).strip()  # remove extra whitespace from the base name
+    base = os.path.basename(raw_dir).strip()
     return os.path.join(parent, base)
 
 def setup_logger() -> logging.Logger:
     logger = logging.getLogger("OmniPromptAnki")
     logger.setLevel(logging.INFO)
-
     addon_dir = get_addon_dir()
     log_file = os.path.join(addon_dir, "omnPrompt-anki.log")
-
     handler = SafeAnkiRotatingFileHandler(
         filename=log_file,
         mode='a',
@@ -153,31 +140,24 @@ def setup_logger() -> logging.Logger:
         encoding='utf-8',
         delay=True
     )
-
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
-
     if not logger.handlers:
         logger.addHandler(handler)
-
     return logger
 
-
 class SafeAnkiRotatingFileHandler(RotatingFileHandler):
-    """Custom handler for Anki environment compatibility"""
     def emit(self, record):
         try:
             super().emit(record)
         except Exception as e:
             print(f"Log write failed: {str(e)}")
-
     def shouldRollover(self, record) -> bool:
         try:
             return super().shouldRollover(record)
         except Exception as e:
             print(f"Log rotation check failed: {str(e)}")
             return False
-
     def doRollover(self):
         try:
             super().doRollover()
@@ -187,49 +167,33 @@ class SafeAnkiRotatingFileHandler(RotatingFileHandler):
         except Exception as e:
             print(f"Log rotation failed: {str(e)}")
 
-
 def check_log_size():
-    log_path = os.path.join(
-        mw.addonManager.addonsFolder(),
-        "omniprompt-anki",
-        "omnPrompt-anki.log"
-    )
+    log_path = os.path.join(mw.addonManager.addonsFolder(), "omniprompt-anki", "omnPrompt-anki.log")
     try:
         size = os.path.getsize(log_path)
-        if size > 4.5 * 1024 * 1024:  # 4.5MB warning
+        if size > 4.5 * 1024 * 1024:
             print("Log file approaching maximum size")
     except Exception:
         pass
 
-
-# Run check periodically (every 100 card updates)
 addHook("reset", check_log_size)
-
-# Initialize logger at module level
 logger = setup_logger()
-
 
 # -------------------------------
 # Background Worker for Note Processing
 # -------------------------------
 class NoteProcessingWorker(QThread):
     progress_update = pyqtSignal(int)       # emits current progress (number of notes processed)
-    note_result = pyqtSignal(object, str)     # emits (note object, explanation)
+    note_result = pyqtSignal(object, str)     # emits (note object, generated text)
     error_occurred = pyqtSignal(object, str)  # emits (note object, error message)
     finished_processing = pyqtSignal(int, int, int)  # emits (processed, total, error_count)
-
-    def __init__(self, note_prompts: list[tuple], generate_ai_response_callback, parent=None):
-        """
-        :param note_prompts: List of tuples (note, prompt)
-        :param generate_ai_response_callback: Callable that takes a prompt and returns a response string.
-        """
+    def __init__(self, note_prompts: list, generate_ai_response_callback, parent=None):
         super().__init__(parent)
         self.note_prompts = note_prompts
         self.generate_ai_response_callback = generate_ai_response_callback
         self._is_cancelled = False
         self.processed = 0
         self.error_count = 0
-
     def run(self) -> None:
         total = len(self.note_prompts)
         for i, (note, prompt) in enumerate(self.note_prompts):
@@ -245,24 +209,21 @@ class NoteProcessingWorker(QThread):
             self.processed += 1
             self.progress_update.emit(i + 1)
         self.finished_processing.emit(self.processed, total, self.error_count)
-
     def cancel(self) -> None:
         self._is_cancelled = True
 
 # -------------------------------
-# Main Add-on Class
+# Main Add‑on Class
 # -------------------------------
 class GPTGrammarExplainer:
     @property
     def addon_dir(self) -> str:
         return os.path.dirname(__file__)
-
     def __init__(self):
         self.logger = logging.getLogger("OmniPromptAnki")
         self.config = self.load_config()
-        addHook("browser.setupMenus", self.on_browser_will_show)
+        # Register settings action (opens SettingsDialog)
         mw.addonManager.setConfigAction(__name__, self.show_settings_dialog)
-
     def save_config(self) -> None:
         try:
             validated = self.validate_config(self.config)
@@ -275,9 +236,7 @@ class GPTGrammarExplainer:
         except Exception as e:
             self.logger.exception(f"Config save failed: {str(e)}")
             self.restore_config()
-
     def emergency_log_cleanup(self) -> None:
-        """Safer log recovery with fallbacks"""
         try:
             for handler in self.logger.handlers[:]:
                 self.logger.removeHandler(handler)
@@ -298,7 +257,6 @@ class GPTGrammarExplainer:
         except Exception as e:
             print(f"Emergency cleanup failed: {str(e)}")
             self.logger.addHandler(logging.StreamHandler(sys.stdout))
-
     def make_openai_request(self, prompt: str) -> str:
         url = "https://api.openai.com/v1/chat/completions"
         headers = {
@@ -308,74 +266,42 @@ class GPTGrammarExplainer:
         data = {
             "model": self.config["OPENAI_MODEL"],
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": self.config["OPENAI_MAX_TOKENS"],
-            "temperature": self.config["OPENAI_TEMPERATURE"]
+            "max_tokens": self.config["MAX_TOKENS"],
+            "temperature": self.config["TEMPERATURE"]
         }
         return self.send_request(url, headers, data)
-
     def make_deepseek_request(self, prompt: str) -> str:
-        """
-        Constructs and sends a request to DeepSeek's Chat Completions API.
-        Supports both non-streaming and streaming responses based on configuration.
-        
-        Official (non-streaming) example:
-        curl https://api.deepseek.com/chat/completions \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer <DeepSeek API Key>" \
-            -d '{
-                "model": "deepseek-chat",
-                "messages": [
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": "Hello!"}
-                ],
-                "stream": false
-                }'
-        
-        If streaming is enabled, the response is expected to be sent as a stream.
-        """
         url = "https://api.deepseek.com/chat/completions"
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Authorization": f"Bearer {self.config['DEEPSEEK_API_KEY']}"
         }
-        
-        # Use a new config parameter to control streaming (default: False)
         stream_flag = self.config.get("DEEPSEEK_STREAM", False)
-        
-        # For streaming mode, you might want to include a system message if desired.
-        # Here we include a default system message; adjust as needed.
         data = {
             "model": self.config["DEEPSEEK_MODEL"],
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": prompt}
             ],
-            "temperature": self.config.get("DEEPSEEK_TEMPERATURE", 0.2),
-            "max_tokens": self.config.get("DEEPSEEK_MAX_TOKENS", 200),
+            "temperature": self.config.get("TEMPERATURE", 0.2),
+            "max_tokens": self.config.get("MAX_TOKENS", 200),
             "stream": stream_flag
         }
-        
-        timeout = 20  # seconds
+        timeout = 20
         try:
             response = requests.post(url, headers=headers, json=data, timeout=timeout, stream=stream_flag)
             response.raise_for_status()
         except Exception as e:
             logger.exception("DeepSeek API request failed:")
             return "[Error: API request failed]"
-        
-        # If streaming is enabled, process the streamed response.
         if stream_flag:
             final_message = ""
             try:
-                # Iterate over each line in the streamed response.
                 for line in response.iter_lines():
                     if line:
                         try:
-                            # Each line is expected to be a JSON object.
                             json_line = json.loads(line.decode("utf-8"))
-                            # Depending on DeepSeek's streaming format, you might need to adjust this.
-                            # For example, if the streaming response returns partial deltas:
                             delta = json_line.get("choices", [{}])[0].get("delta", {}).get("content", "")
                             final_message += delta
                         except Exception as stream_e:
@@ -386,14 +312,11 @@ class GPTGrammarExplainer:
                 logger.exception("Error reading streamed response from DeepSeek:")
                 return "[Error: API request failed during streaming]"
         else:
-            # Non-streaming mode: attempt to parse the full JSON response.
             try:
                 response_json = response.json()
             except Exception as e:
                 logger.exception("Failed to decode JSON response from DeepSeek:")
                 return "[Error: Unable to parse response]"
-            
-            # Check for a response structure similar to OpenAI's (adjust as needed)
             if "choices" in response_json and response_json["choices"]:
                 message = response_json["choices"][0].get("message", {}).get("content", "").strip()
                 if message:
@@ -405,18 +328,14 @@ class GPTGrammarExplainer:
             else:
                 logger.error(f"Invalid DeepSeek API response structure: {response_json}")
                 return "[Error: Unexpected response format]"
-
     def send_request(self, url: str, headers: dict, data: dict) -> str:
-        """Generalized API request function with retry mechanism"""
         retries = 3
         backoff_factor = 2
         timeout = 20
-
         if not check_internet():
             logger.error("No internet connection.")
             showInfo("No internet connection. Please check your network and try again.")
             return "[Error: No internet]"
-
         for attempt in range(retries):
             try:
                 safe_data = data.copy()
@@ -443,7 +362,6 @@ class GPTGrammarExplainer:
                 safe_show_info(f"API error: {e}")
                 return "[Error: API request failed]"
         return "[Error: API request failed after multiple attempts]"
-
     def generate_ai_response(self, prompt: str) -> str:
         provider = self.config.get("AI_PROVIDER", "openai")
         if provider == "openai":
@@ -455,21 +373,18 @@ class GPTGrammarExplainer:
         else:
             logger.error(f"Invalid AI provider: {provider}")
             return "[Error: Invalid AI provider]"
-
     def show_settings_dialog(self) -> None:
+        # The Settings dialog now only includes API provider/key, temperature, max tokens, and a View Log button.
         dialog = SettingsDialog(mw)
         dialog.load_config(self.config)
         if dialog.exec():
             self.config = dialog.get_updated_config()
             self.save_config()
-
     def load_config(self) -> dict:
         raw_config = mw.addonManager.getConfig(__name__) or {}
         validated = self.validate_config(raw_config)
         return self.migrate_config(validated)
-
     def migrate_config(self, config: dict) -> dict:
-        # Log migration steps
         if config.get("_version", 0) < DEFAULT_CONFIG["_version"]:
             self.logger.info(f"Migrating config from version {config.get('_version', 'unknown')} to {DEFAULT_CONFIG['_version']}")
         migrated = DEFAULT_CONFIG.copy()
@@ -478,7 +393,6 @@ class GPTGrammarExplainer:
             migrated.setdefault("SELECTED_FIELDS", DEFAULT_CONFIG["SELECTED_FIELDS"])
             migrated["_version"] = 1.1
         return migrated
-
     def validate_config(self, config: dict) -> dict:
         try:
             validate(instance=config, schema=CONFIG_SCHEMA)
@@ -487,12 +401,10 @@ class GPTGrammarExplainer:
             self.logger.exception(f"Config validation error: {str(e)}")
             self.logger.info("Reverting to default configuration")
             return DEFAULT_CONFIG.copy()
-
     def backup_config(self) -> None:
         backup_path = os.path.join(self.addon_dir, "config_backup.json")
         with open(backup_path, "w") as f:
             json.dump(self.config, f)
-
     def restore_config(self) -> None:
         backup_path = os.path.join(self.addon_dir, "config_backup.json")
         if os.path.exists(backup_path):
@@ -500,120 +412,8 @@ class GPTGrammarExplainer:
                 self.config = json.load(f)
             self.save_config()
 
-    def save_config(self) -> None:
-        try:
-            validated = self.validate_config(self.config)
-            validated = self.migrate_config(validated)
-            if validated.get("_version") != DEFAULT_CONFIG["_version"]:
-                self.emergency_log_cleanup()
-                showInfo("Configuration version mismatch. Reset to defaults.")
-                return
-            mw.addonManager.writeConfig(__name__, validated)
-        except Exception as e:
-            self.logger.exception(f"Config save failed: {str(e)}")
-            self.restore_config()
-
-    def on_browser_will_show(self, browser: Browser) -> None:
-        menu = browser.form.menuEdit
-        self.action = QAction("Update cards with OmniPrompt", browser)
-        self.action.triggered.connect(lambda: self.update_selected_notes(browser))
-        menu.addAction(self.action)
-
-    def update_selected_notes(self, browser: Browser) -> None:
-        selected_notes = list(set(browser.selectedNotes()))
-        note_type_id = self.config.get("note_type_id", None)
-
-        if note_type_id is None:
-            showInfo("No note type selected! Please configure the note type in settings.")
-            return
-
-        target_field, ok = getText(
-            "Enter the field name where the generated data should be saved:",
-            default=self.config.get("SELECTED_FIELDS", {}).get("output_field", "Output")
-        )
-        if not ok:
-            return
-
-        self.config["SELECTED_FIELDS"]["output_field"] = target_field
-
-        # Prepare list of (note, prompt) for valid notes.
-        note_prompts: list[tuple] = []
-        for note_id in selected_notes:
-            note = mw.col.get_note(note_id)
-            if note.note_type()['id'] != note_type_id:
-                continue
-            try:
-                prompt = self.config["PROMPT"].format(**note)
-            except KeyError as e:
-                showInfo(f"Missing field {e} in note {note.id}")
-                self.logger.error(f"Missing field {e} in note {note.id}")
-                continue
-            note_prompts.append((note, prompt))
-
-        if not note_prompts:
-            showInfo("No valid notes found for processing.")
-            return
-
-        progress = QProgressDialog("Updating cards with OmniPrompt...", "Cancel", 0, len(note_prompts), mw)
-        progress.setWindowTitle("OmniPrompt Processing")
-        progress.setMinimumDuration(0)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-
-        modified_fields_counter = 0
-        error_count_counter = 0
-
-        def on_progress_update(value: int) -> None:
-            progress.setValue(value)
-
-        def on_note_result(note, explanation: str) -> None:
-            nonlocal modified_fields_counter
-            try:
-                # Update the note object directly
-                if note[target_field] != explanation:
-                    note[target_field] = explanation
-                    mw.col.update_note(note)
-                    modified_fields_counter += 1
-                self.logger.info(f"Processed note {note.id}")
-            except Exception as ex:
-                self.logger.exception(f"Error updating note {note.id}: {ex}")
-
-        def on_error_occurred(note, error_message: str) -> None:
-            nonlocal error_count_counter
-            error_count_counter += 1
-            self.logger.error(f"Error processing note {note.id}: {error_message}")
-            if error_count_counter <= 5:
-                safe_show_info(f"Error processing note {note.id}: {error_message}")
-
-        def on_finished(processed: int, total: int, worker_error_count: int) -> None:
-            progress.setValue(total)
-            total_errors = error_count_counter + worker_error_count
-            if total_errors > 5:
-                showInfo(f"{total_errors - 5} additional errors occurred. Check logs for details.")
-            if processed:
-                QMessageBox.information(
-                    mw, "Complete",
-                    f"Updated {processed}/{total} notes.\nModified {modified_fields_counter} fields."
-                )
-            else:
-                QMessageBox.warning(mw, "Error", "No notes processed. Check fields/config.")
-
-        # Create and start the worker thread.
-        worker = NoteProcessingWorker(note_prompts, self.generate_ai_response)
-        # You can keep or remove forced queued connections if needed.
-        worker.progress_update.connect(on_progress_update, Qt.ConnectionType.QueuedConnection)
-        worker.note_result.connect(on_note_result, Qt.ConnectionType.QueuedConnection)
-        worker.error_occurred.connect(on_error_occurred, Qt.ConnectionType.QueuedConnection)
-        worker.finished_processing.connect(on_finished, Qt.ConnectionType.QueuedConnection)
-
-        def on_cancel() -> None:
-            worker.cancel()
-        progress.canceled.connect(on_cancel)
-
-        worker.start()
-
-
 # -------------------------------
-# Settings Dialog
+# Settings Dialog (Only API settings and View Log)
 # -------------------------------
 class SettingsDialog(QDialog):
     def __init__(self, parent=None) -> None:
@@ -622,95 +422,38 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(500)
         self.config = None
         self.init_ui()
-        # Connect the provider combo signal
-        self.provider_combo.currentIndexChanged.connect(self.update_api_options)
-
     def init_ui(self) -> None:
         layout = QVBoxLayout()
-
         # AI Provider Selection
         provider_group = QGroupBox("AI Provider Selection")
         provider_layout = QVBoxLayout()
-
         self.provider_combo = QComboBox()
         self.provider_combo.addItems(AI_PROVIDERS)
-
         provider_layout.addWidget(QLabel("Select AI Provider:"))
         provider_layout.addWidget(self.provider_combo)
         self.model_combo = QComboBox()
+        provider_layout.addWidget(QLabel("Model:"))
+        provider_layout.addWidget(self.model_combo)
         provider_group.setLayout(provider_layout)
         layout.addWidget(provider_group)
-
-        # Note Type Selection
-        type_group = QGroupBox("Note Type Selection")
-        type_layout = QFormLayout()
-        self.note_type_combo = QComboBox()
-        type_layout.addRow("Note Type:", self.note_type_combo)
-        type_group.setLayout(type_layout)
-        layout.addWidget(type_group)
-
         # API Settings
         api_group = QGroupBox("API Settings")
         api_layout = QFormLayout()
-
         self.api_key_input = QLineEdit()
         self.api_key_input.setPlaceholderText("Enter API key")
         api_layout.addRow("API Key:", self.api_key_input)
-
-        self.model_combo = QComboBox()
-        api_layout.addRow("Model:", self.model_combo)
-
         self.temperature_input = QLineEdit()
         self.temperature_input.setValidator(QDoubleValidator(0.0, 2.0, 2))
         api_layout.addRow("Temperature:", self.temperature_input)
-
         self.max_tokens_input = QLineEdit()
         self.max_tokens_input.setValidator(QIntValidator(100, 4000))
         api_layout.addRow("Max Tokens:", self.max_tokens_input)
-
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
-
-        # Field Settings
-        field_group = QGroupBox("Note Fields")
-        field_layout = QFormLayout()
-
-        self.explanation_field_combo = QComboBox()
-        field_layout.addRow("Output Field:", self.explanation_field_combo)
-
-        field_group.setLayout(field_layout)
-        layout.addWidget(field_group)
-
-        # Prompt Management
-        prompt_group = QGroupBox("Prompt Templates")
-        prompt_layout = QVBoxLayout()
-
-        self.prompt_combo = QComboBox()
-        self.prompt_combo.setEditable(True)
-        prompt_layout.addWidget(QLabel("Saved Prompts:"))
-        prompt_layout.addWidget(self.prompt_combo)
-
-        self.save_prompt_button = QPushButton("Save Current Prompt")
-        self.delete_prompt_button = QPushButton("Delete Selected Prompt")
-        prompt_layout.addWidget(self.save_prompt_button)
-        prompt_layout.addWidget(self.delete_prompt_button)
-
-        self.prompt_edit = QTextEdit()
-        self.prompt_edit.setPlaceholderText("Use Shift+Enter for new lines")
-        self.prompt_edit.setAcceptRichText(False)
-        self.prompt_edit.setWordWrapMode(QTextOption.WrapMode.NoWrap)
-        self.prompt_edit.document().setDocumentMargin(12)
-        prompt_layout.addWidget(QLabel("Prompt Template:"))
-        prompt_layout.addWidget(self.prompt_edit)
-
-        prompt_group.setLayout(prompt_layout)
-        layout.addWidget(prompt_group)
-
-        # --- Show Log Button ---
-        self.show_log_button = QPushButton("Show Log")
-        self.show_log_button.clicked.connect(self.show_log)
-        layout.addWidget(self.show_log_button)
-
+        # View Log Button
+        self.view_log_button = QPushButton("View Log")
+        self.view_log_button.clicked.connect(self.show_log)
+        layout.addWidget(self.view_log_button)
         # Buttons
         button_layout = QHBoxLayout()
         self.save_button = QPushButton("Save")
@@ -720,18 +463,9 @@ class SettingsDialog(QDialog):
         button_layout.addWidget(self.save_button)
         button_layout.addWidget(self.cancel_button)
         layout.addLayout(button_layout)
-
         self.setLayout(layout)
-
-        # Event Listeners
-        self.note_type_combo.currentIndexChanged.connect(self.load_fields_for_selected_note_type)
-        self.save_prompt_button.clicked.connect(self.save_prompt)
-        self.delete_prompt_button.clicked.connect(self.delete_prompt)
         self.provider_combo.currentIndexChanged.connect(self.update_api_options)
-        self.prompt_combo.currentIndexChanged.connect(self.update_prompt_from_template)
-
-        self.load_prompts()
-
+        self.update_api_options()
     def update_api_options(self) -> None:
         provider = self.provider_combo.currentText()
         self.model_combo.clear()
@@ -741,105 +475,32 @@ class SettingsDialog(QDialog):
         elif provider == "deepseek":
             self.api_key_input.setPlaceholderText("Enter DeepSeek API Key")
             self.model_combo.addItems(["deepseek-chat", "deepseek-reasoner"])
-
-    def update_prompt_from_template(self) -> None:
-        selected_template = self.prompt_combo.currentText()
-        templates = load_prompt_templates()
-        if selected_template in templates:
-            self.prompt_edit.setPlainText(templates[selected_template])
-
     def load_config(self, config: dict) -> None:
         self.config = config
         self.provider_combo.setCurrentText(self.config["AI_PROVIDER"])
-        
         self.update_api_options()
-
         if self.config["AI_PROVIDER"] == "openai":
             self.api_key_input.setText(self.config.get("OPENAI_API_KEY", ""))
-            # Now the model_combo has been populated; set the current model if present
             self.model_combo.setCurrentText(self.config.get("OPENAI_MODEL", ""))
-            self.temperature_input.setText(str(self.config.get("OPENAI_TEMPERATURE", 0.2)))
-            self.max_tokens_input.setText(str(self.config.get("OPENAI_MAX_TOKENS", 200)))
         else:
             self.api_key_input.setText(self.config.get("DEEPSEEK_API_KEY", ""))
             self.model_combo.setCurrentText(self.config.get("DEEPSEEK_MODEL", ""))
-            self.temperature_input.setText(str(self.config.get("DEEPSEEK_TEMPERATURE", 0.2)))
-            self.max_tokens_input.setText(str(self.config.get("DEEPSEEK_MAX_TOKENS", 200)))
-
-        self.note_type_combo.clear()
-        for model in mw.col.models.all():
-            self.note_type_combo.addItem(model['name'], userData=model['id'])
-        current_id = self.config.get("note_type_id")
-        if current_id:
-            index = self.note_type_combo.findData(current_id)
-            if index >= 0:
-                self.note_type_combo.setCurrentIndex(index)
-        self.load_fields_for_selected_note_type()
-        self.load_prompts()
-        self.prompt_edit.setPlainText(self.config.get("PROMPT", ""))
-        self.update_prompt_from_template()
-
-    def load_fields_for_selected_note_type(self) -> None:
-        model_id = self.note_type_combo.currentData()
-        if model_id:
-            note_type = mw.col.models.get(model_id)
-            if note_type:
-                fields = mw.col.models.field_names(note_type)
-                self.explanation_field_combo.clear()
-                self.explanation_field_combo.addItems(fields)
-                current_output = self.config["SELECTED_FIELDS"].get("output_field", "")
-                if current_output in fields:
-                    self.explanation_field_combo.setCurrentText(current_output)
-
-    def load_prompts(self) -> None:
-        self.prompt_combo.clear()
-        prompts = load_prompt_templates()
-        for name in prompts.keys():
-            self.prompt_combo.addItem(name)
-
-    def save_prompt(self) -> None:
-        name, ok = getText("Enter a name for the prompt:")
-        if ok and name:
-            prompts = load_prompt_templates()
-            prompts[name] = self.prompt_edit.toPlainText()
-            save_prompt_templates(prompts)
-            self.prompt_combo.setCurrentText(name)
-            self.load_prompts()
-
-    def delete_prompt(self) -> None:
-        name = self.prompt_combo.currentText()
-        prompts = load_prompt_templates()
-        if name in prompts:
-            del prompts[name]
-            save_prompt_templates(prompts)
-            self.load_prompts()
-            self.prompt_edit.clear()
-
+        self.temperature_input.setText(str(self.config.get("TEMPERATURE", 0.2)))
+        self.max_tokens_input.setText(str(self.config.get("MAX_TOKENS", 200)))
     def get_updated_config(self) -> dict:
-        selected_note_type_index = self.note_type_combo.currentIndex()
-        selected_note_type_id = self.note_type_combo.itemData(selected_note_type_index)
         return {
             "AI_PROVIDER": self.provider_combo.currentText(),
             "OPENAI_API_KEY": self.api_key_input.text() if self.provider_combo.currentText() == "openai" else "",
             "DEEPSEEK_API_KEY": self.api_key_input.text() if self.provider_combo.currentText() == "deepseek" else "",
             "OPENAI_MODEL": self.model_combo.currentText() if self.provider_combo.currentText() == "openai" else "",
             "DEEPSEEK_MODEL": self.model_combo.currentText() if self.provider_combo.currentText() == "deepseek" else "",
-            "OPENAI_TEMPERATURE": float(self.temperature_input.text()) if self.provider_combo.currentText() == "openai" else self.config["OPENAI_TEMPERATURE"],
-            "DEEPSEEK_TEMPERATURE": float(self.temperature_input.text()) if self.provider_combo.currentText() == "deepseek" else self.config["DEEPSEEK_TEMPERATURE"],
-            "OPENAI_MAX_TOKENS": int(self.max_tokens_input.text()) if self.provider_combo.currentText() == "openai" else self.config["OPENAI_MAX_TOKENS"],
-            "DEEPSEEK_MAX_TOKENS": int(self.max_tokens_input.text()) if self.provider_combo.currentText() == "deepseek" else self.config["DEEPSEEK_MAX_TOKENS"],
-            "note_type_id": selected_note_type_id,
-            "PROMPT": self.prompt_edit.toPlainText(),
-            "SELECTED_FIELDS": {
-                "output_field": self.explanation_field_combo.currentText()
-            }
+            "TEMPERATURE": float(self.temperature_input.text()),
+            "MAX_TOKENS": int(self.max_tokens_input.text()),
+            "PROMPT": self.config.get("PROMPT", ""),
+            "SELECTED_FIELDS": self.config.get("SELECTED_FIELDS", {"output_field": "Output"}),
+            "_version": DEFAULT_CONFIG["_version"]
         }
-    
     def show_log(self) -> None:
-        """
-        Opens a dialog that displays the contents of the add-on's log file.
-        """
-        # Determine the log file path
         log_path = os.path.join(os.path.dirname(__file__), "omnPrompt-anki.log")
         try:
             with open(log_path, "r", encoding="utf-8") as f:
@@ -847,26 +508,209 @@ class SettingsDialog(QDialog):
         except Exception as e:
             safe_show_info(f"Failed to load log file: {e}")
             return
-
-        # Create a dialog to display the log
         log_dialog = QDialog(self)
         log_dialog.setWindowTitle("OmniPrompt Anki Log")
         log_dialog.setMinimumSize(600, 400)
-
         layout = QVBoxLayout(log_dialog)
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
         text_edit.setPlainText(log_content)
         layout.addWidget(text_edit)
-
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(log_dialog.accept)
         layout.addWidget(close_btn)
-
         log_dialog.exec()
 
+# -------------------------------
+# Update with OmniPrompt Dialog
+# -------------------------------
+class UpdateOmniPromptDialog(QDialog):
+    def __init__(self, notes: list, gpt_instance: GPTGrammarExplainer, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Update with OmniPrompt")
+        self.notes = notes  # list of note objects
+        self.gpt_instance = gpt_instance
+        self.worker = None
+        self.setup_ui()
+    def setup_ui(self):
+        main_layout = QHBoxLayout(self)
+        # Left panel: prompt settings and controls.
+        left_panel = QVBoxLayout()
+        left_panel.addWidget(QLabel("Prompt Template:"))
+        self.prompt_edit = QTextEdit()
+        self.prompt_edit.setAcceptRichText(False)
+        self.prompt_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.prompt_edit.setPlainText(self.gpt_instance.config.get("PROMPT", ""))
+        left_panel.addWidget(self.prompt_edit)
+        left_panel.addWidget(QLabel("Saved Prompts:"))
+        self.prompt_combo = QComboBox()
+        self.prompt_combo.setEditable(True)
+        self.load_prompts()
+        self.prompt_combo.currentIndexChanged.connect(self.load_selected_prompt)
+        left_panel.addWidget(self.prompt_combo)
+        self.save_prompt_button = QPushButton("Save Current Prompt")
+        self.save_prompt_button.clicked.connect(self.save_current_prompt)
+        left_panel.addWidget(self.save_prompt_button)
+        # Instead of a plain text for output field, we use a dropdown.
+        left_panel.addWidget(QLabel("Output Field:"))
+        self.output_field_combo = QComboBox()
+        # Populate with fields from the note type of the first note.
+        if self.notes:
+            first_note = self.notes[0]
+            # Assume note type id is in first_note.mid.
+            model = mw.col.models.get(first_note.mid)
+            if model:
+                fields = mw.col.models.field_names(model)
+                self.output_field_combo.addItems(fields)
+        left_panel.addWidget(self.output_field_combo)
+        self.start_button = QPushButton("Start")
+        self.start_button.clicked.connect(self.start_processing)
+        left_panel.addWidget(self.start_button)
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.clicked.connect(self.stop_processing)
+        self.stop_button.setEnabled(False)
+        left_panel.addWidget(self.stop_button)
+        main_layout.addLayout(left_panel, 1)
+        # Right panel: table with progress, original, and generated text.
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Progress", "Original", "Generated"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        main_layout.addWidget(self.table, 3)
+    def load_prompts(self):
+        self.prompt_combo.clear()
+        prompts = load_prompt_templates()
+        for name in prompts.keys():
+            self.prompt_combo.addItem(name)
+    def load_selected_prompt(self):
+        selected = self.prompt_combo.currentText()
+        prompts = load_prompt_templates()
+        if selected in prompts:
+            self.prompt_edit.setPlainText(prompts[selected])
+    def save_current_prompt(self):
+        name, ok = getText("Enter a name for the prompt:")
+        if ok and name:
+            prompts = load_prompt_templates()
+            prompts[name] = self.prompt_edit.toPlainText()
+            save_prompt_templates(prompts)
+            self.load_prompts()
+            self.prompt_combo.setCurrentText(name)
+            showInfo("Prompt saved.")
+    def start_processing(self):
+        note_prompts = []
+        prompt_template = self.prompt_edit.toPlainText()
+        output_field = self.output_field_combo.currentText().strip()
+        if not output_field:
+            safe_show_info("Please select an output field.")
+            return
+        for note in self.notes:
+            try:
+                formatted_prompt = prompt_template.format(**note)
+            except KeyError as e:
+                safe_show_info(f"Missing field {e} in note {note.id}")
+                continue
+            note_prompts.append((note, formatted_prompt))
+        if not note_prompts:
+            safe_show_info("No valid notes to process.")
+            return
+        self.table.setRowCount(len(note_prompts))
+        for row, (note, prompt) in enumerate(note_prompts):
+            progress_item = QTableWidgetItem("0%")
+            try:
+                original_text = note[output_field]
+            except Exception:
+                original_text = ""
+            original_item = QTableWidgetItem(original_text)
+            # Save note id in the UserRole data for later lookup.
+            original_item.setData(Qt.ItemDataRole.UserRole, note.id)
+            generated_item = QTableWidgetItem("")
+            self.table.setItem(row, 0, progress_item)
+            self.table.setItem(row, 1, original_item)
+            self.table.setItem(row, 2, generated_item)
+        self.start_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+        self.worker = NoteProcessingWorker(note_prompts, self.gpt_instance.generate_ai_response)
+        self.worker.progress_update.connect(self.update_progress, Qt.ConnectionType.QueuedConnection)
+        self.worker.note_result.connect(self.update_note_result, Qt.ConnectionType.QueuedConnection)
+        self.worker.finished_processing.connect(self.processing_finished, Qt.ConnectionType.QueuedConnection)
+        self.worker.start()
+    def stop_processing(self):
+        if self.worker:
+            self.worker.cancel()
+            self.stop_button.setEnabled(False)
+    def update_progress(self, value: int):
+        row = value - 1
+        if 0 <= row < self.table.rowCount():
+            percentage = int((value / self.table.rowCount()) * 100)
+            self.table.item(row, 0).setText(f"{percentage}%")
+    def update_note_result(self, note, explanation: str):
+        output_field = self.output_field_combo.currentText().strip()
+        for row in range(self.table.rowCount()):
+            original_item = self.table.item(row, 1)
+            if original_item.data(Qt.ItemDataRole.UserRole) == note.id:
+                self.table.item(row, 2).setText(explanation)
+                try:
+                    note[output_field] = explanation
+                    mw.col.update_note(note)
+                except Exception as e:
+                    logger.exception(f"Error updating note {note.id}: {e}")
+                break
+    def processing_finished(self, processed: int, total: int, worker_error_count: int):
+        safe_show_info(f"Processing finished: {processed}/{total} notes processed with {worker_error_count} errors.")
+        self.start_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
 
 # -------------------------------
-# Instantiate the Add-on
+# About Dialog
+# -------------------------------
+class AboutDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("About OmniPrompt Anki")
+        layout = QVBoxLayout(self)
+        about_text = ("<h2>OmniPrompt Anki Add‑on</h2>"
+                      "<p>Version: 1.0</p>"
+                      "<p>For documentation, visit: <a href='https://github.com/yourrepo/omniprompt-anki'>GitHub Repository</a></p>"
+                      "<p>Credits: Your Name</p>")
+        label = QLabel(about_text)
+        label.setOpenExternalLinks(True)
+        layout.addWidget(label)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn)
+
+# -------------------------------
+# Top‑Level OmniPrompt Menu Setup
+# -------------------------------
+def setup_omniprompt_menu():
+    menubar = mw.form.menubar
+    omni_menu = menubar.addMenu("OmniPrompt")
+    settings_action = QAction("Settings", mw)
+    settings_action.triggered.connect(lambda: gpt_grammar_explainer.show_settings_dialog())
+    omni_menu.addAction(settings_action)
+    about_action = QAction("About", mw)
+    about_action.triggered.connect(lambda: AboutDialog(mw).exec())
+    omni_menu.addAction(about_action)
+
+# -------------------------------
+# Browser Context Menu Hook
+# -------------------------------
+def on_browser_context_menu(browser: Browser, menu):
+    note_ids = browser.selectedNotes()
+    if note_ids:
+        action = QAction("Update with OmniPrompt", browser)
+        action.triggered.connect(lambda: update_notes_with_omniprompt(note_ids))
+        menu.addAction(action)
+
+def update_notes_with_omniprompt(note_ids: list):
+    notes = [mw.col.get_note(nid) for nid in note_ids]
+    dialog = UpdateOmniPromptDialog(notes, gpt_grammar_explainer, parent=mw)
+    dialog.exec()
+
+gui_hooks.browser_will_show_context_menu.append(on_browser_context_menu)
+
+# -------------------------------
+# Instantiate the Add‑on and Setup Menu
 # -------------------------------
 gpt_grammar_explainer = GPTGrammarExplainer()
+setup_omniprompt_menu()
