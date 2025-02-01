@@ -132,11 +132,17 @@ def check_internet() -> bool:
 # -------------------------------
 # Logger Setup
 # -------------------------------
+def get_addon_dir() -> str:
+    raw_dir = os.path.dirname(__file__)
+    parent = os.path.dirname(raw_dir)
+    base = os.path.basename(raw_dir).strip()  # remove extra whitespace from the base name
+    return os.path.join(parent, base)
+
 def setup_logger() -> logging.Logger:
     logger = logging.getLogger("OmniPromptAnki")
     logger.setLevel(logging.INFO)
 
-    addon_dir = os.path.dirname(__file__)
+    addon_dir = get_addon_dir()
     log_file = os.path.join(addon_dir, "omnPrompt-anki.log")
 
     handler = SafeAnkiRotatingFileHandler(
@@ -616,6 +622,8 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(500)
         self.config = None
         self.init_ui()
+        # Connect the provider combo signal
+        self.provider_combo.currentIndexChanged.connect(self.update_api_options)
 
     def init_ui(self) -> None:
         layout = QVBoxLayout()
@@ -623,10 +631,13 @@ class SettingsDialog(QDialog):
         # AI Provider Selection
         provider_group = QGroupBox("AI Provider Selection")
         provider_layout = QVBoxLayout()
+
         self.provider_combo = QComboBox()
         self.provider_combo.addItems(AI_PROVIDERS)
+
         provider_layout.addWidget(QLabel("Select AI Provider:"))
         provider_layout.addWidget(self.provider_combo)
+        self.model_combo = QComboBox()
         provider_group.setLayout(provider_layout)
         layout.addWidget(provider_group)
 
@@ -695,6 +706,11 @@ class SettingsDialog(QDialog):
         prompt_group.setLayout(prompt_layout)
         layout.addWidget(prompt_group)
 
+        # --- Show Log Button ---
+        self.show_log_button = QPushButton("Show Log")
+        self.show_log_button.clicked.connect(self.show_log)
+        layout.addWidget(self.show_log_button)
+
         # Buttons
         button_layout = QHBoxLayout()
         self.save_button = QPushButton("Save")
@@ -735,8 +751,12 @@ class SettingsDialog(QDialog):
     def load_config(self, config: dict) -> None:
         self.config = config
         self.provider_combo.setCurrentText(self.config["AI_PROVIDER"])
+        
+        self.update_api_options()
+
         if self.config["AI_PROVIDER"] == "openai":
             self.api_key_input.setText(self.config.get("OPENAI_API_KEY", ""))
+            # Now the model_combo has been populated; set the current model if present
             self.model_combo.setCurrentText(self.config.get("OPENAI_MODEL", ""))
             self.temperature_input.setText(str(self.config.get("OPENAI_TEMPERATURE", 0.2)))
             self.max_tokens_input.setText(str(self.config.get("OPENAI_MAX_TOKENS", 200)))
@@ -745,6 +765,7 @@ class SettingsDialog(QDialog):
             self.model_combo.setCurrentText(self.config.get("DEEPSEEK_MODEL", ""))
             self.temperature_input.setText(str(self.config.get("DEEPSEEK_TEMPERATURE", 0.2)))
             self.max_tokens_input.setText(str(self.config.get("DEEPSEEK_MAX_TOKENS", 200)))
+
         self.note_type_combo.clear()
         for model in mw.col.models.all():
             self.note_type_combo.addItem(model['name'], userData=model['id'])
@@ -813,6 +834,36 @@ class SettingsDialog(QDialog):
                 "output_field": self.explanation_field_combo.currentText()
             }
         }
+    
+    def show_log(self) -> None:
+        """
+        Opens a dialog that displays the contents of the add-on's log file.
+        """
+        # Determine the log file path
+        log_path = os.path.join(os.path.dirname(__file__), "omnPrompt-anki.log")
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                log_content = f.read()
+        except Exception as e:
+            safe_show_info(f"Failed to load log file: {e}")
+            return
+
+        # Create a dialog to display the log
+        log_dialog = QDialog(self)
+        log_dialog.setWindowTitle("OmniPrompt Anki Log")
+        log_dialog.setMinimumSize(600, 400)
+
+        layout = QVBoxLayout(log_dialog)
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setPlainText(log_content)
+        layout.addWidget(text_edit)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(log_dialog.accept)
+        layout.addWidget(close_btn)
+
+        log_dialog.exec()
 
 
 # -------------------------------
