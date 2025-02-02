@@ -526,6 +526,7 @@ class UpdateOmniPromptDialog(QDialog):
         self.gpt_instance = gpt_instance
         self.worker = None
         self.setup_ui()
+
     def setup_ui(self):
         main_layout = QHBoxLayout(self)
         # Left panel: prompt editing and controls.
@@ -562,22 +563,32 @@ class UpdateOmniPromptDialog(QDialog):
         self.stop_button.clicked.connect(self.stop_processing)
         self.stop_button.setEnabled(False)
         left_panel.addWidget(self.stop_button)
+        # New "Save Changes" button to update notes with manual edits.
+        self.save_changes_button = QPushButton("Save Manual Edits")
+        self.save_changes_button.clicked.connect(self.save_manual_edits)
+        left_panel.addWidget(self.save_changes_button)
         main_layout.addLayout(left_panel, 1)
+        
         # Right panel: table with three columns: Progress, Original, and Generated.
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Progress", "Original", "Generated"])
         self.table.horizontalHeader().setStretchLastSection(True)
+        # Make sure the "Generated" column is editable.
+        # (By default, QTableWidgetItems are editable unless you disable editing.)
         main_layout.addWidget(self.table, 3)
+
     def load_prompts(self):
         self.prompt_combo.clear()
         prompts = load_prompt_templates()
         for name in prompts.keys():
             self.prompt_combo.addItem(name)
+
     def load_selected_prompt(self, text: str):
         prompts = load_prompt_templates()
         if text in prompts:
             self.prompt_edit.setPlainText(prompts[text])
+
     def save_current_prompt(self):
         name, ok = getText("Enter a name for the prompt:")
         if ok and name:
@@ -587,6 +598,7 @@ class UpdateOmniPromptDialog(QDialog):
             self.load_prompts()
             self.prompt_combo.setCurrentText(name)
             showInfo("Prompt saved.")
+
     def start_processing(self):
         note_prompts = []
         prompt_template = self.prompt_edit.toPlainText()
@@ -604,6 +616,7 @@ class UpdateOmniPromptDialog(QDialog):
         if not note_prompts:
             safe_show_info("No valid notes to process.")
             return
+        # Populate table: one row per note.
         self.table.setRowCount(len(note_prompts))
         for row, (note, prompt) in enumerate(note_prompts):
             progress_item = QTableWidgetItem("0%")
@@ -613,7 +626,7 @@ class UpdateOmniPromptDialog(QDialog):
                 original_text = ""
             original_item = QTableWidgetItem(original_text)
             original_item.setData(Qt.ItemDataRole.UserRole, note.id)
-            generated_item = QTableWidgetItem("")
+            generated_item = QTableWidgetItem("")  # Editable by default.
             self.table.setItem(row, 0, progress_item)
             self.table.setItem(row, 1, original_item)
             self.table.setItem(row, 2, generated_item)
@@ -623,28 +636,49 @@ class UpdateOmniPromptDialog(QDialog):
         self.worker.note_result.connect(self.update_note_result, Qt.ConnectionType.QueuedConnection)
         self.worker.finished_processing.connect(self.processing_finished, Qt.ConnectionType.QueuedConnection)
         self.worker.start()
+
     def stop_processing(self):
         if self.worker:
             self.worker.cancel()
             self.stop_button.setEnabled(False)
+
     def update_note_result(self, note, explanation: str):
         output_field = self.output_field_combo.currentText().strip()
         for row in range(self.table.rowCount()):
             original_item = self.table.item(row, 1)
             if original_item.data(Qt.ItemDataRole.UserRole) == note.id:
                 self.table.item(row, 0).setText("100%")
+                # Update the generated column with the API-generated text.
                 self.table.item(row, 2).setText(explanation)
+                # Automatically update the note in the collection.
                 try:
                     note[output_field] = explanation
                     mw.col.update_note(note)
                 except Exception as e:
                     logger.exception(f"Error updating note {note.id}: {e}")
                 break
+
+    def save_manual_edits(self):
+        """Iterate over each row in the table and save the content of the 'Generated' column to the corresponding note."""
+        output_field = self.output_field_combo.currentText().strip()
+        for row in range(self.table.rowCount()):
+            original_item = self.table.item(row, 1)
+            generated_item = self.table.item(row, 2)
+            note_id = original_item.data(Qt.ItemDataRole.UserRole)
+            note = mw.col.get_note(note_id)
+            new_text = generated_item.text()
+            try:
+                note[output_field] = new_text
+                mw.col.update_note(note)
+            except Exception as e:
+                logger.exception(f"Error saving manual edit for note {note.id}: {e}")
+        safe_show_info("Manual edits saved.")
+
     def processing_finished(self, processed: int, total: int, worker_error_count: int):
         safe_show_info(f"Processing finished: {processed}/{total} notes processed with {worker_error_count} errors.")
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
-
+        
 # -------------------------------
 # About Dialog
 # -------------------------------
