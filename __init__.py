@@ -678,7 +678,7 @@ class UpdateOmniPromptDialog(QDialog):
         safe_show_info(f"Processing finished: {processed}/{total} notes processed with {worker_error_count} errors.")
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
-        
+
 # -------------------------------
 # About Dialog
 # -------------------------------
@@ -690,10 +690,12 @@ class AboutDialog(QDialog):
         about_text = (
             "<h2>OmniPrompt Anki Add‑on</h2>"
             "<p>Version: 1.1.1</p>"
+            "<p><a href='https://ankiweb.net/shared/review/1383162606'>Rate add-on on AnkiWeb</a></p>"
             "<p>For documentation, visit:</p>"
             "<p><a href='https://github.com/stanamosov/omniprompt-anki'>GitHub Repository</a></p>"
             "<p><a href='https://codeberg.org/stanamosov/omniprompt-anki'>Codeberg Repository</a></p>"
             "<p>Credits: Stanislav Amosov</p>"
+            "<p>Contact: <a href="mailto:omniprompt@mailwizard.org">omniprompt@mailwizard.org</a></p>"
         )
         label = QLabel(about_text)
         label.setOpenExternalLinks(True)
