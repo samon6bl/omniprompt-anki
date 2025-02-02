@@ -6,14 +6,14 @@
 **Your AI Anki Assistant!** OmniPrompt Anki is an Anki add-on that enhances your flashcards with AI-powered content generation. It integrates with **OpenAI** and **DeepSeek** models to help you improve your decks effortlessly.
 
 ## Features
-✅ **AI-Powered Content** – Generate definitions, translations, explanations, synonyms, and more.
-✅ **Supports OpenAI & DeepSeek** – Choose your AI provider.
-✅ **Custom Prompts** – Save and reuse prompt templates with field placeholders.
-✅ **Batch Processing** – Process multiple notes simultaneously.
-✅ **Real-Time Progress Tracking** – Monitor AI generation progress for each note.
-✅ **Flexible Field Selection** – Choose which field to update dynamically.
-✅ **Auto-Save** – Generated content is automatically saved to the selected field.
-✅ **Formatting Cleanup** – Use AI to clean or modify existing text formatting.
+✅ **AI-Powered Content** – Generate definitions, translations, explanations, synonyms, and more.  
+✅ **Supports OpenAI & DeepSeek** – Choose your AI provider.  
+✅ **Custom Prompts** – Save and reuse prompt templates with field placeholders.  
+✅ **Batch Processing** – Process multiple notes simultaneously.  
+✅ **Real-Time Progress Tracking** – Monitor AI generation progress for each note.  
+✅ **Flexible Field Selection** – Choose which field to update dynamically.  
+✅ **Auto-Save** – Generated content is automatically saved to the selected field.  
+✅ **Formatting Cleanup** – Use AI to clean or modify existing text formatting.  
 
 ---
 
@@ -21,7 +21,7 @@
 
 | Feature | Description | Screenshot |
 |---------|------------|------------|
-| **Find Add-on Settings** | Open Anki and go to **Tools → OmniPrompt-Anki → Settings** | ![Batch Processing](docs/user_interface/find_settings.jpg) |
+| **Find Add-on Settings** | Open Anki and go to Tools → OmniPrompt-Anki → Settings | ![Batch Processing](docs/user_interface/find_settings.jpg) |
 | **Settings Menu** | Configure API Key, AI model, and prompt template. | ![Settings](docs/user_interface/settings_screenshot.jpg) |
 | **Update with OmniPrompt** | Right-click in the Anki Browser to update notes using AI. | ![Context Menu](docs/user_interface/context_menu.jpg) |
 | **Batch Processing Window** | View progress, original content, and generated AI responses. | ![Batch Processing](docs/user_interface/update_with_OmniPrompt.jpg) |
@@ -77,41 +77,48 @@ git clone https://github.com/stanamosov/omniprompt-anki.git
 
 ## Examples of Use
 
-### **Word Definition & Translation**  
-**Prompt Example:**  
-```plaintext
-Translate the word "{Front}" into French. Provide a detailed explanation and example sentences.
-```
-**Use Case:** Useful for bilingual vocabulary decks.
+With OmniPrompt-Anki, you can generate AI-powered content for various learning needs. Customize your prompt to match your study goals. Here are a few practical examples:  
 
-### **Grammar Explanation for Cloze Sentences**  
-**Prompt Example:**  
+### **Language Translation**  
+**Prompt:**  
 ```plaintext
-Analyze the grammar of this sentence: "{Cloze}". Explain the function of each word.
-```
-**Use Case:** Great for Cloze Deletion decks.
+Translate this French word "{French Word}" to English. Answer with translation only.
+```  
 
-### **Verb Conjugations**  
-**Prompt Example:**  
+### **Word Definitions**  
+**Prompt:**  
 ```plaintext
-Provide conjugation tables for the verb "{Front}" in past, present, and future tenses.
-```
-**Use Case:** Ideal for memorizing verb forms.
+Explain this Polish word "{Polish Word}". Answer with definition only, do not add any other comments.
+```  
 
-### **Sentence Generation**  
-**Prompt Example:**  
+### **Synonyms & Vocabulary Expansion**  
+**Prompt:**  
 ```plaintext
-Generate 2 example sentences for language learners on the level B1-B2 using "{Front}".
+What are synonyms for this French word "{French Word}". Answer with a list of synonyms only.
 ```
-**Use Case:** Expands usage knowledge for learners.
 
-### **Phonetics & Pronunciation**  
-**Prompt Example:**  
+### **Text Formatting & Cleanup**  
+**Prompt:**  
 ```plaintext
-Provide an IPA transcription and pronunciation tips for the word "{Front}".
-```
-**Use Case:** Helps with speech clarity and accents.
+Format this text "{Explanation}" in markdown. Answer with formatted text only, do not add any comments.
+```  
 
+### **Example Sentence Generation**  
+**Prompt:**  
+```plaintext
+Generate two example sentences for language learners at the B1-B2 level using the word "{Word}".
+```  
+### **Grammar & Verb Conjugation**  
+**Prompt:**  
+```plaintext
+What is the correct form of the French verb "{Verb}" in {Tense} for {Person}? Explain the conjugation rule.
+```  
+
+### **Medical Term Explanation**  
+**Prompt:**  
+```plaintext
+Explain the medical term "{Term}" in simple language. Include its symptoms, causes, and treatments.
+```  
 ---
 
 ## Customizing Prompts with Note Fields
@@ -153,10 +160,10 @@ To make debugging easier, the add-on includes a **View Log** button in the **Set
 - [x] Custom prompts & field selection.
 - [x] OpenAI & DeepSeek integration.
 - [x] UI improvements & auto-save feature.
+- [x] Enhanced UI for multi-note processing.
 
 ### **🚀 Planned**
 - [ ] Support for more AI models.
-- [ ] Enhanced UI for multi-note processing.
 
 ---
 
@@ -174,8 +181,4 @@ OmniPrompt-Anki is **completely free** and open-source, created to help learners
 
 👉 [**Rate add-on on AnkiWeb**](https://ankiweb.net/shared/review/1383162606)  
 
-Thank you for your support! 🚀  
-
----
-
-Enjoy **OmniPrompt Anki** and make your learning smarter!
+Thank you for your support!
