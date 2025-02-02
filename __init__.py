@@ -695,7 +695,7 @@ class AboutDialog(QDialog):
             "<p><a href='https://github.com/stanamosov/omniprompt-anki'>GitHub Repository</a></p>"
             "<p><a href='https://codeberg.org/stanamosov/omniprompt-anki'>Codeberg Repository</a></p>"
             "<p>Credits: Stanislav Amosov</p>"
-            "<p>Contact: <a href="mailto:omniprompt@mailwizard.org">omniprompt@mailwizard.org</a></p>"
+            "<p>Contact: <a href=\"mailto:omniprompt@mailwizard.org\">omniprompt@mailwizard.org</a></p>"
         )
         label = QLabel(about_text)
         label.setOpenExternalLinks(True)
