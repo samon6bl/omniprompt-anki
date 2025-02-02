@@ -2,15 +2,11 @@
 OmniPrompt Anki Add‑on
 
 Features:
-- A top‑level “OmniPrompt” menu with “Settings” and “About” items.
-- A browser context‑menu action “Update with OmniPrompt” (right‑click a note).
-- A Settings dialog that lets the user set AI provider, API key, temperature, and max tokens,
-  plus a “View Log” button.
-- An Update dialog that opens when “Update with OmniPrompt” is triggered. The dialog’s left panel
-  lets the user edit the prompt template, choose from saved prompts (using triple‑brackets delimiters),
-  and choose the output field (populated automatically from the note type of the selected notes). The
-  right panel displays a table with progress, the note’s original field content, and the generated content.
-- The update process automatically writes the generated text to the selected output field.
+- A Tools menu entry “OmniPrompt” (as a submenu inside the Tools menu) with “Settings” and “About” items.
+- A browser context‑menu action “Update with OmniPrompt” (appearing on right‑click on a note).
+- A Settings dialog that lets the user set AI provider settings (API key, temperature, max tokens) and view the log.
+- An Update dialog that opens when “Update with OmniPrompt” is triggered. In that dialog the left panel contains prompt editing and saved‐prompt selection (using triple‑brackets delimiters), an output field dropdown (populated from the first selected note), and Start/Stop buttons. The right panel shows a table with three columns: “Progress”, “Original”, and “Generated.”
+- The update process automatically writes the generated text into the chosen output field.
 """
 
 import requests, logging, os, time, socket, sys, json
@@ -18,12 +14,12 @@ from jsonschema import validate
 from anki.errors import NotFoundError
 from aqt.utils import showInfo, getText
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal, QMetaObject
-from PyQt6.QtGui import QDoubleValidator, QIntValidator, QTextOption
-# Note: In PyQt6, QAction is imported from PyQt6.QtGui.
-from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QGroupBox, QComboBox, QLabel,
-                             QLineEdit, QFormLayout, QPushButton, QTextEdit, QHBoxLayout,
-                             QMessageBox, QProgressDialog, QWidget, QTableWidget, QTableWidgetItem)
+from PyQt6.QtGui import QDoubleValidator, QIntValidator, QTextOption, QAction
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QGroupBox, QComboBox, QLabel,
+    QLineEdit, QFormLayout, QPushButton, QTextEdit, QHBoxLayout,
+    QMessageBox, QProgressDialog, QWidget, QTableWidget, QTableWidgetItem, QMenu
+)
 from aqt import mw, gui_hooks
 from aqt.browser import Browser
 from anki.hooks import addHook
@@ -42,8 +38,8 @@ DEFAULT_CONFIG = {
     "API_ENDPOINT": "api.openai.com",
     "OPENAI_MODEL": "gpt-4o-mini",
     "DEEPSEEK_MODEL": "deepseek-chat",
-    "TEMPERATURE": 0.2,     # common for all providers
-    "MAX_TOKENS": 200,      # common for all providers
+    "TEMPERATURE": 0.2,    # one common value for all providers
+    "MAX_TOKENS": 200,     # one common value for all providers
     "PROMPT": "Paste your prompt here.",
     "SELECTED_FIELDS": {
         "output_field": "Output"
@@ -183,10 +179,10 @@ logger = setup_logger()
 # Background Worker for Note Processing
 # -------------------------------
 class NoteProcessingWorker(QThread):
-    progress_update = pyqtSignal(int)       # emits current progress (number of notes processed)
-    note_result = pyqtSignal(object, str)     # emits (note object, generated text)
-    error_occurred = pyqtSignal(object, str)  # emits (note object, error message)
-    finished_processing = pyqtSignal(int, int, int)  # emits (processed, total, error_count)
+    progress_update = pyqtSignal(int)
+    note_result = pyqtSignal(object, str)
+    error_occurred = pyqtSignal(object, str)
+    finished_processing = pyqtSignal(int, int, int)
     def __init__(self, note_prompts: list, generate_ai_response_callback, parent=None):
         super().__init__(parent)
         self.note_prompts = note_prompts
@@ -207,7 +203,6 @@ class NoteProcessingWorker(QThread):
                 logger.exception(f"Error processing note {note.id}")
                 self.error_occurred.emit(note, str(e))
             self.processed += 1
-            self.progress_update.emit(i + 1)
         self.finished_processing.emit(self.processed, total, self.error_count)
     def cancel(self) -> None:
         self._is_cancelled = True
@@ -222,7 +217,7 @@ class GPTGrammarExplainer:
     def __init__(self):
         self.logger = logging.getLogger("OmniPromptAnki")
         self.config = self.load_config()
-        # Register settings action (opens SettingsDialog)
+        # Register the settings action so the Settings dialog is accessible via the add‑on manager.
         mw.addonManager.setConfigAction(__name__, self.show_settings_dialog)
     def save_config(self) -> None:
         try:
@@ -288,7 +283,7 @@ class GPTGrammarExplainer:
             "max_tokens": self.config.get("MAX_TOKENS", 200),
             "stream": stream_flag
         }
-        timeout = 20
+        timeout = 60
         try:
             response = requests.post(url, headers=headers, json=data, timeout=timeout, stream=stream_flag)
             response.raise_for_status()
@@ -374,7 +369,6 @@ class GPTGrammarExplainer:
             logger.error(f"Invalid AI provider: {provider}")
             return "[Error: Invalid AI provider]"
     def show_settings_dialog(self) -> None:
-        # The Settings dialog now only includes API provider/key, temperature, max tokens, and a View Log button.
         dialog = SettingsDialog(mw)
         dialog.load_config(self.config)
         if dialog.exec():
@@ -413,7 +407,7 @@ class GPTGrammarExplainer:
             self.save_config()
 
 # -------------------------------
-# Settings Dialog (Only API settings and View Log)
+# Settings Dialog (API settings and View Log)
 # -------------------------------
 class SettingsDialog(QDialog):
     def __init__(self, parent=None) -> None:
@@ -534,7 +528,7 @@ class UpdateOmniPromptDialog(QDialog):
         self.setup_ui()
     def setup_ui(self):
         main_layout = QHBoxLayout(self)
-        # Left panel: prompt settings and controls.
+        # Left panel: prompt editing and controls.
         left_panel = QVBoxLayout()
         left_panel.addWidget(QLabel("Prompt Template:"))
         self.prompt_edit = QTextEdit()
@@ -545,19 +539,17 @@ class UpdateOmniPromptDialog(QDialog):
         left_panel.addWidget(QLabel("Saved Prompts:"))
         self.prompt_combo = QComboBox()
         self.prompt_combo.setEditable(True)
+        self.prompt_combo.currentTextChanged.connect(self.load_selected_prompt)
         self.load_prompts()
-        self.prompt_combo.currentIndexChanged.connect(self.load_selected_prompt)
         left_panel.addWidget(self.prompt_combo)
         self.save_prompt_button = QPushButton("Save Current Prompt")
         self.save_prompt_button.clicked.connect(self.save_current_prompt)
         left_panel.addWidget(self.save_prompt_button)
-        # Instead of a plain text for output field, we use a dropdown.
         left_panel.addWidget(QLabel("Output Field:"))
         self.output_field_combo = QComboBox()
-        # Populate with fields from the note type of the first note.
+        # Populate output field from the note type of the first selected note.
         if self.notes:
             first_note = self.notes[0]
-            # Assume note type id is in first_note.mid.
             model = mw.col.models.get(first_note.mid)
             if model:
                 fields = mw.col.models.field_names(model)
@@ -571,7 +563,7 @@ class UpdateOmniPromptDialog(QDialog):
         self.stop_button.setEnabled(False)
         left_panel.addWidget(self.stop_button)
         main_layout.addLayout(left_panel, 1)
-        # Right panel: table with progress, original, and generated text.
+        # Right panel: table with three columns: Progress, Original, and Generated.
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Progress", "Original", "Generated"])
@@ -582,11 +574,10 @@ class UpdateOmniPromptDialog(QDialog):
         prompts = load_prompt_templates()
         for name in prompts.keys():
             self.prompt_combo.addItem(name)
-    def load_selected_prompt(self):
-        selected = self.prompt_combo.currentText()
+    def load_selected_prompt(self, text: str):
         prompts = load_prompt_templates()
-        if selected in prompts:
-            self.prompt_edit.setPlainText(prompts[selected])
+        if text in prompts:
+            self.prompt_edit.setPlainText(prompts[text])
     def save_current_prompt(self):
         name, ok = getText("Enter a name for the prompt:")
         if ok and name:
@@ -617,11 +608,10 @@ class UpdateOmniPromptDialog(QDialog):
         for row, (note, prompt) in enumerate(note_prompts):
             progress_item = QTableWidgetItem("0%")
             try:
-                original_text = note[output_field]
+                original_text = note[self.output_field_combo.currentText()]
             except Exception:
                 original_text = ""
             original_item = QTableWidgetItem(original_text)
-            # Save note id in the UserRole data for later lookup.
             original_item.setData(Qt.ItemDataRole.UserRole, note.id)
             generated_item = QTableWidgetItem("")
             self.table.setItem(row, 0, progress_item)
@@ -630,7 +620,6 @@ class UpdateOmniPromptDialog(QDialog):
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.worker = NoteProcessingWorker(note_prompts, self.gpt_instance.generate_ai_response)
-        self.worker.progress_update.connect(self.update_progress, Qt.ConnectionType.QueuedConnection)
         self.worker.note_result.connect(self.update_note_result, Qt.ConnectionType.QueuedConnection)
         self.worker.finished_processing.connect(self.processing_finished, Qt.ConnectionType.QueuedConnection)
         self.worker.start()
@@ -638,16 +627,12 @@ class UpdateOmniPromptDialog(QDialog):
         if self.worker:
             self.worker.cancel()
             self.stop_button.setEnabled(False)
-    def update_progress(self, value: int):
-        row = value - 1
-        if 0 <= row < self.table.rowCount():
-            percentage = int((value / self.table.rowCount()) * 100)
-            self.table.item(row, 0).setText(f"{percentage}%")
     def update_note_result(self, note, explanation: str):
         output_field = self.output_field_combo.currentText().strip()
         for row in range(self.table.rowCount()):
             original_item = self.table.item(row, 1)
             if original_item.data(Qt.ItemDataRole.UserRole) == note.id:
+                self.table.item(row, 0).setText("100%")
                 self.table.item(row, 2).setText(explanation)
                 try:
                     note[output_field] = explanation
@@ -668,10 +653,14 @@ class AboutDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("About OmniPrompt Anki")
         layout = QVBoxLayout(self)
-        about_text = ("<h2>OmniPrompt Anki Add‑on</h2>"
-                      "<p>Version: 1.0</p>"
-                      "<p>For documentation, visit: <a href='https://github.com/yourrepo/omniprompt-anki'>GitHub Repository</a></p>"
-                      "<p>Credits: Your Name</p>")
+        about_text = (
+            "<h2>OmniPrompt Anki Add‑on</h2>"
+            "<p>Version: 1.1.1</p>"
+            "<p>For documentation, visit:</p>"
+            "<p><a href='https://github.com/stanamosov/omniprompt-anki'>GitHub Repository</a></p>"
+            "<p><a href='https://codeberg.org/stanamosov/omniprompt-anki'>Codeberg Repository</a></p>"
+            "<p>Credits: Stanislav Amosov</p>"
+        )
         label = QLabel(about_text)
         label.setOpenExternalLinks(True)
         layout.addWidget(label)
@@ -680,17 +669,19 @@ class AboutDialog(QDialog):
         layout.addWidget(close_btn)
 
 # -------------------------------
-# Top‑Level OmniPrompt Menu Setup
+# Tools Menu (OmniPrompt as a submenu)
 # -------------------------------
 def setup_omniprompt_menu():
-    menubar = mw.form.menubar
-    omni_menu = menubar.addMenu("OmniPrompt")
+    # Get the Tools menu from Anki.
+    tools_menu = mw.form.menuTools
+    omni_menu = QMenu("OmniPrompt", mw)
     settings_action = QAction("Settings", mw)
     settings_action.triggered.connect(lambda: gpt_grammar_explainer.show_settings_dialog())
     omni_menu.addAction(settings_action)
     about_action = QAction("About", mw)
     about_action.triggered.connect(lambda: AboutDialog(mw).exec())
     omni_menu.addAction(about_action)
+    tools_menu.addMenu(omni_menu)
 
 # -------------------------------
 # Browser Context Menu Hook
