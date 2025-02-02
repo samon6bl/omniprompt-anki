@@ -1,38 +1,30 @@
-# OmniPrompt Anki 🚀  
+# OmniPrompt Anki 
+## v1.1.1
+[![OpenAI](https://img.shields.io/badge/OpenAI-%2312100E.svg?style=flat&logo=openai&logoColor=white)](https://openai.com)
+[![DeepSeek](https://img.shields.io/badge/DeepSeek-4B9CD3.svg?style=flat&logo=deepl&logoColor=white)](https://deepseek.com)
 
-**OmniPrompt Anki** is an Anki add-on that enhances your flashcards by generating AI-powered fields. It integrates with LLM models to provide **detailed grammar explanations, translations, definitions**, whatever you want to add to your deck!
+**Your AI Anki Assistant!** OmniPrompt Anki is an Anki add-on that enhances your flashcards with AI-powered content generation. It integrates with **OpenAI** and **DeepSeek** models to help you improve your decks effortlessly.
 
 ## Features
-✅ **AI-Powered Explanations** – Uses LLM models to generate your card field content.  
-✅ **Supports OpenAI & DeepSeek** – Choose your AI provider.  
-✅ **Custom Prompts** – Configure and save personalized prompt templates.  
-✅ **Batch Processing** – Process multiple notes at once.  
-✅ **Progress Tracking** – A progress bar shows real-time updates for batch processing.  
-✅ **Field Selection** – Choose which field to update **before running**.  
-✅ **Use Any Note Field in Prompt** – Dynamically insert note fields into the prompt.  
-
----
-
-## ⚠️ DeepSeek API Currently Not Working ⚠️
-
-At the moment, **DeepSeek API requests may fail or time out**, leading to incomplete or missing responses.  
-This issue is not related to **OmniPrompt-Anki**, but rather an ongoing problem with DeepSeek's API services.  
-
-**Check DeepSeek's current status here:** [DeepSeek API Status](https://status.deepseek.com/)
-
-We recommend using **OpenAI** as the AI provider until the issue is resolved.
+✅ **AI-Powered Content** – Generate definitions, translations, explanations, synonyms, and more.
+✅ **Supports OpenAI & DeepSeek** – Choose your AI provider.
+✅ **Custom Prompts** – Save and reuse prompt templates with field placeholders.
+✅ **Batch Processing** – Process multiple notes simultaneously.
+✅ **Real-Time Progress Tracking** – Monitor AI generation progress for each note.
+✅ **Flexible Field Selection** – Choose which field to update dynamically.
+✅ **Auto-Save** – Generated content is automatically saved to the selected field.
+✅ **Formatting Cleanup** – Use AI to clean or modify existing text formatting.
 
 ---
 
 ## User Interface
 
-To help you understand how **OmniPrompt-Anki** works, here are some key interface elements.
-
 | Feature | Description | Screenshot |
 |---------|------------|------------|
-| **1️⃣ Settings Menu** | Configure API Key, AI model, and prompt template. Select the note type before choosing fields. | ![Settings Menu](docs/user_interface/settings_screenshot.jpg) |
-| **2️⃣ Selecting the Explanation Field** | Before updating, you must confirm which field will be overwritten. **Warning:** This action will replace existing content in the selected field. | ![Field Selection](docs/user_interface/field_selection_screenshot.jpg) |
-| **3️⃣ Running OmniPrompt in the Anki Browser** | Select notes and click **"Update cards with OmniPrompt"** in the **Edit menu**. The progress bar will indicate real-time updates. | ![Anki Browser Menu](docs/user_interface/anki_browser_screenshot.jpg) |
+| **Find Add-on Settings** | Open Anki and go to **Tools → OmniPrompt-Anki → Settings** | ![Batch Processing](docs/user_interface/find_settings.jpg) |
+| **Settings Menu** | Configure API Key, AI model, and prompt template. | ![Settings](docs/user_interface/settings_screenshot.jpg) |
+| **Update with OmniPrompt** | Right-click in the Anki Browser to update notes using AI. | ![Context Menu](docs/user_interface/context_menu.jpg) |
+| **Batch Processing Window** | View progress, original content, and generated AI responses. | ![Batch Processing](docs/user_interface/update_with_OmniPrompt.jpg) |
 
 ---
 
@@ -40,7 +32,7 @@ To help you understand how **OmniPrompt-Anki** works, here are some key interfac
 
 ### **From AnkiWeb**
 1. Open Anki and go to **Tools → Add-ons → Get Add-ons**.
-2. Enter the add-on code: 
+2. Enter the add-on code:
    ```
    1383162606
    ```
@@ -49,8 +41,10 @@ To help you understand how **OmniPrompt-Anki** works, here are some key interfac
 ### **From Codeberg or GitHub**
 #### **1️⃣ Clone the Repository**
 ```sh
+# Codeberg
 git clone https://codeberg.org/stanamosov/omniprompt-anki.git
-# or from Github
+
+# GitHub
 git clone https://github.com/stanamosov/omniprompt-anki.git
 ```
 #### **2️⃣ Install the Add-on**
@@ -63,118 +57,83 @@ git clone https://github.com/stanamosov/omniprompt-anki.git
 ---
 
 ## Setup
-1. Open Anki and go to **Tools → Add-ons → OmniPrompt-Anki → Config**.
-2. Enter your **OpenAI** or **DeepSeek** **API key**.
+1. Open Anki and go to **Tools → OmniPrompt-Anki → Settings**.
+2. Select your AI provider **(OpenAI or DeepSeek)** and enter your **API key**.
 3. Choose the **AI model** (`gpt-4o`, `gpt-3.5-turbo`, `deepseek-chat`, etc.).
-4.  **Select a note type** before choosing the fields.  
-   🔹 *By default, the first note type in your collection is selected.*
-5. **Set the field where AI-generated explanations should be saved.**
-6. **Customize your prompt template using placeholders from your note fields.** *(See examples below)*
-7. Click **Save** and start using the add-on!
+4. Click **Save** and start using the add-on!
 
 ---
 
 ## How It Works
 1. **Select notes in the Anki Browser**.
-2. **Click “Update cards with OmniPrompt”** in the **Edit menu**.
-3. **Confirm which field will be overwritten.**  
-   🚨 **Warning:** All existing data in the selected field **will be replaced** with AI-generated content.
-4. The add-on **sends a request to OpenAI or DeepSeek** with the configured prompt.
-5. AI-generated content **is saved in the selected field**.
-6. A **confirmation message** shows how many notes were updated.
+2. **Right-click → Update with OmniPrompt**.
+3. **Pick the output field where AI-generated responses will be stored.**
+4. **Choose a prompt out of templates and customize it using placeholders from note fields.**
+5. **Clisck Start, AI generates and saves content into the selected notes.**
+6. **Edit manually if needed before finalizing, click Save Manual Edits to save your edits.**
+7. **Enjoy enhanced flashcards!**
 
 ---
 
 ## Examples of Use
 
-### **Automated Word Translations**  
+### **Word Definition & Translation**  
 **Prompt Example:**  
 ```plaintext
-Translate the word "{Front}" into French, provide a detailed explanation, and give example sentences with translations.
+Translate the word "{Front}" into French. Provide a detailed explanation and example sentences.
 ```
-**Use Case:** Useful for building bilingual vocabulary decks.
+**Use Case:** Useful for bilingual vocabulary decks.
 
 ### **Grammar Explanation for Cloze Sentences**  
 **Prompt Example:**  
 ```plaintext
-Analyze the grammar of this sentence: "{Cloze}". Explain the function of each word and provide alternative phrasings.
+Analyze the grammar of this sentence: "{Cloze}". Explain the function of each word.
 ```
-**Use Case:** Perfect for **Cloze Deletion decks**, where learners focus on missing words.
+**Use Case:** Great for Cloze Deletion decks.
 
-### **Detailed Verb Conjugations**  
+### **Verb Conjugations**  
 **Prompt Example:**  
 ```plaintext
-Provide full conjugation tables for the verb "{Front}" in present, past, and future tenses in Spanish.
+Provide conjugation tables for the verb "{Front}" in past, present, and future tenses.
 ```
-**Use Case:** Helps language learners quickly **memorize verb forms**.
+**Use Case:** Ideal for memorizing verb forms.
 
-### **Contextual Example Generation**  
+### **Sentence Generation**  
 **Prompt Example:**  
 ```plaintext
-Generate three example sentences using the word "{Front}" in different contexts. Provide explanations for each.
+Generate 2 example sentences for language learners on the level B1-B2 using "{Front}".
 ```
-**Use Case:** Expands word usage knowledge, **reinforcing retention**.
+**Use Case:** Expands usage knowledge for learners.
 
-### **Phonetic Breakdown & Pronunciation Tips**  
+### **Phonetics & Pronunciation**  
 **Prompt Example:**  
 ```plaintext
-Provide an IPA transcription and pronunciation tips for the word "{Front}". Explain difficult sounds for non-native speakers.
+Provide an IPA transcription and pronunciation tips for the word "{Front}".
 ```
-**Use Case:** Great for learning **pronunciation of foreign words**.
-
-### **Synonyms, Antonyms & Related Words**  
-**Prompt Example:**  
-```plaintext
-List 5 synonyms and 5 antonyms for the word "{Front}". Include example sentences.
-```
-**Use Case:** Helps expand vocabulary by learning **word relationships**.
-
-### **Cultural Context & Usage**  
-**Prompt Example:**  
-```plaintext
-Explain the cultural nuances of the phrase "{Front}" in Japanese. When is it appropriate or inappropriate to use it?
-```
-**Use Case:** Ideal for learners of **Japanese, Chinese, and other languages** with strong contextual meanings.
-
-These are just **a few examples**, but you can **fully customize your prompts** to fit any learning style!
+**Use Case:** Helps with speech clarity and accents.
 
 ---
 
-## Customizing the Prompt with Note Fields
-You can use **any field from your selected note type** inside the prompt. Field names are **case sensitive**!
+## Customizing Prompts with Note Fields
+Use **any field** from your note type in prompts. Field names are **case-sensitive**. You can use **multiple fields** in your prompt and even use your **Output field** for input - it makes possible change formatting of existing fields!
 
-### **Example Prompt Using Note Fields**
-  **PROMPT**: 
+### **Example Using Multiple Fields**
+  **PROMPT**:  
   ```
-  Generate a detailed explanation for this word: {Front}. Include examples and a grammar breakdown.
+  Generate a detailed explanation for "{Japanese Word}". Include this example: "{Sentence}".
   ```
-
-### **Using Multiple Fields**
-  **PROMPT**: 
-  ```
-  Generate a detailed explanation for this japanese word: {Japanese Word}. Include this example: "{Sentence}" in explanation.
-  ```
-  This dynamically puls **both Japanese Word and Sentence fields** into the AI request.
-
-### **🚨 Warning: Field Overwrite**
-Before running, the add-on will **ask you to confirm** the field where the AI-generated content will be saved.  
-**All existing content in this field will be replaced.**
 
 ---
 
-## Logging
-This add-on maintains a log file (**omnPrompt-anki.log**) inside the add-ons folder.  
-This log captures API requests, responses, and errors for debugging purposes. The log file is limited to **5MB**, and up to **two backups** are maintained to prevent excessive disk usage.
+## Logging & Debugging
 
-If you encounter issues, check the log file for:
-  - API connection failures
-  - Timeout errors
-  - Invalid JSON responses
+OmniPrompt-Anki maintains a log file (**omnPrompt-anki.log**) inside the add-ons folder to track API requests, responses, and potential errors. This helps with troubleshooting issues like API connection failures, timeouts, or unexpected responses. The log file is capped at **5MB**, with up to **two backups** to prevent excessive disk usage.  
+
+To make debugging easier, the add-on includes a **View Log** button in the **Settings** menu. Simply open **Tools → OmniPrompt → Settings** and click **View Log** to inspect recent activity and diagnose issues quickly.
 
 ---
 
 ## 🤝 Contributing
-We welcome contributions! 🛠️
 
 ### **How to Contribute**
 1. **Fork the repository** on [Codeberg](https://codeberg.org/stanamosov/omniprompt-anki) or [GitHub](https://github.com/stanamosov/omniprompt-anki).
@@ -184,31 +143,39 @@ We welcome contributions! 🛠️
 
 ### **Ways to Help**
 - **Bug reports & feature requests**: Open an issue on [Codeberg](https://codeberg.org/stanamosov/omniprompt-anki) or [GitHub](https://github.com/stanamosov/omniprompt-anki).
-- **Code improvements**: Help optimize or add new features.
-- **Documentation**: Improve instructions.
+- **Improve documentation**.
+- **Optimize code & performance**.
 
 ---
+
 ## 🛠️ Roadmap
 ### **✅ Completed**
-- [x] Selectable note fields in the prompt  
-- [x] **Customization UI** – More user-friendly settings configuration.  
-- [x] **More AI Models** – Add support for DeepeSeek and other LLMs.  
+- [x] Custom prompts & field selection.
+- [x] OpenAI & DeepSeek integration.
+- [x] UI improvements & auto-save feature.
 
-### **🚀 Planned Features** 
-- [ ] **LLM's** – More LLM's support.  
+### **🚀 Planned**
+- [ ] Support for more AI models.
+- [ ] Enhanced UI for multi-note processing.
 
 ---
 
 ## 📜 License
-This project is licensed under the [**MIT License**](docs/LICENSE).  
-You are free to use, modify, and distribute the code with attribution.
+This project is licensed under the [**MIT License**](docs/LICENSE). Feel free to use, modify, and distribute it with attribution.
 
 ---
 
 ## ❤️ Support & Feedback
 - Found a bug? Open an **issue** on [Codeberg](https://codeberg.org/stanamosov/omniprompt-anki) or [GitHub](https://github.com/stanamosov/omniprompt-anki).
-- Have suggestions? **We’d love to hear your feedback!**  
-- Want to contribute? Check out the **Contributing** section.
+- Have suggestions? **We’d love to hear your feedback!**
+- Want to contribute? See the **Contributing** section.
 
-Enjoy smarter studying with **OmniPrompt Anki Plugin**! 🚀
+OmniPrompt-Anki is **completely free** and open-source, created to help learners enhance their flashcards with AI-powered content. If you find this add-on useful, you can support its development by **leaving a positive review on AnkiWeb**. Your feedback helps more users discover the add-on and encourages further improvements.  
 
+👉 [**Rate add-on on AnkiWeb**](https://ankiweb.net/shared/review/1383162606)  
+
+Thank you for your support! 🚀  
+
+---
+
+Enjoy **OmniPrompt Anki** and make your learning smarter!
