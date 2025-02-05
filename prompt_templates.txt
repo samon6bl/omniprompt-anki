@@ -1,4 +1,4 @@
-[[[[Translation]]]]
+[[[Translation]]]
 Translate this French word "{French Word}" to English. Answer with translation only.
 
 [[[Definition]]]
