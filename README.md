@@ -145,7 +145,7 @@ To access these settings, go to **Tools > OmniPrompt > Settings**, then select *
 
 ## Keyboard Shortcuts
 
-**Ctrl+Shift+O (Windows/Linux) / Ctrl+Shift+O (macOS)** - Open the **Update with OmniPrompt** dialog in the browser.
+**Ctrl+Shift+O (Windows/Linux) / Ctrl+Shift+O (macOS)** - Open the **Update with OmniPrompt** dialog in the browser.  
 **Ctrl+Return** - Immediately start processing selected notes.
 
 ---
