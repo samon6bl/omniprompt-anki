@@ -1,5 +1,5 @@
 # OmniPrompt Anki 
-## v1.1.1
+## v1.1.2
 [![OpenAI](https://img.shields.io/badge/OpenAI-%2312100E.svg?style=flat&logo=openai&logoColor=white)](https://openai.com)
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-4B9CD3.svg?style=flat&logo=deepl&logoColor=white)](https://deepseek.com)
 
@@ -14,6 +14,8 @@
 ✅ **Flexible Field Selection** – Choose which field to update dynamically.  
 ✅ **Auto-Save** – Generated content is automatically saved to the selected field.  
 ✅ **Formatting Cleanup** – Use AI to clean or modify existing text formatting.  
+✅ **Advanced Settings** – Fine-tune timeout, delay, and API streaming options.  
+✅ **Keyboard Shortcuts** – Quickly process notes with hotkeys.  
 
 ---
 
@@ -21,10 +23,11 @@
 
 | Feature | Description | Screenshot |
 |---------|------------|------------|
-| **Find Add-on Settings** | Open Anki and go to Tools → OmniPrompt-Anki → Settings | ![Batch Processing](docs/user_interface/find_settings.jpg) |
+| **Find Add-on Settings** | Open Anki and go to Tools → OmniPrompt-Anki → Settings | ![Batch Processing](docs/user_interface/settings.jpg) |
 | **Settings Menu** | Configure API Key, AI model, and prompt template. | ![Settings](docs/user_interface/settings_screenshot.jpg) |
+| **Advenced Settings** | Open Settings → Advenced Settings, there you can change API Delay, Timeout and Deepseek Streaming | ![Batch Processing](docs/user_interface/advanced_settings.jpg) |
 | **Update with OmniPrompt** | Right-click in the Anki Browser to update notes using AI. | ![Context Menu](docs/user_interface/context_menu.jpg) |
-| **Batch Processing Window** | View progress, original content, and generated AI responses. | ![Batch Processing](docs/user_interface/update_with_OmniPrompt.jpg) |
+| **Batch Processing Window** | View progress, original content, and generated AI responses. | ![Batch Processing](docs/user_interface/main_ui.jpg) |
 
 ---
 
@@ -129,6 +132,21 @@ Use **any field** from your note type in prompts. Field names are **case-sensiti
   ```
   Generate a detailed explanation for "{Japanese Word}". Include this example: "{Sentence}".
   ```
+---
+
+## Advanced Settings
+To access these settings, go to **Tools > OmniPrompt > Settings**, then select **Advanced Settings**.
+
+**API Delay** - Adds a short pause between consecutive requests to avoid rate limits.
+**Timeout** - Adjusts how long the add-on waits for each API request to finish.
+**Streaming** (for DeepSeek) - Enables partial message updates in real time.
+
+---
+
+## Keyboard Shortcuts
+
+**Ctrl+Shift+O (Windows/Linux) / Ctrl+Shift+O (macOS)** - Open the **Update with OmniPrompt** dialog in the browser.
+**Ctrl+Return** - Immediately start processing selected notes.
 
 ---
 
@@ -161,6 +179,8 @@ To make debugging easier, the add-on includes a **View Log** button in the **Set
 - [x] OpenAI & DeepSeek integration.
 - [x] UI improvements & auto-save feature.
 - [x] Enhanced UI for multi-note processing.
+- [x] Keyboard shortcuts.
+- [x] Advanced settings.
 
 ### **🚀 Planned**
 - [ ] Support for more AI models.
