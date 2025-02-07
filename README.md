@@ -24,7 +24,7 @@
 | Feature | Description | Screenshot |
 |---------|------------|------------|
 | **Find Add-on Settings** | Open Anki and go to Tools → OmniPrompt-Anki → Settings | ![Batch Processing](docs/user_interface/settings.jpg) |
-| **Settings Menu** | Configure API Key, AI model, and prompt template. | ![Settings](docs/user_interface/settings_screenshot.jpg) |
+| **Settings Menu** | Configure API Key, AI model, and prompt template. | ![Settings](docs/user_interface/settings.jpg) |
 | **Advenced Settings** | Open Settings → Advenced Settings, there you can change API Delay, Timeout and Deepseek Streaming | ![Batch Processing](docs/user_interface/advanced_settings.jpg) |
 | **Update with OmniPrompt** | Right-click in the Anki Browser to update notes using AI. | ![Context Menu](docs/user_interface/context_menu.jpg) |
 | **Batch Processing Window** | View progress, original content, and generated AI responses. | ![Batch Processing](docs/user_interface/main_ui.jpg) |
@@ -183,6 +183,11 @@ To make debugging easier, the add-on includes a **View Log** button in the **Set
 - [x] Advanced settings.
 
 ### **🚀 Planned**
+- [ ] Keeping the Browse window accessible when updating with OmniPrompt.
+- [ ] Storing API keys separately for each model.
+- [ ] Saving the output field selection together with the prompt template and title.
+- [ ] Improving search behavior in the Saved Prompts box with better autocomplete and multi-instance selection.
+- [ ] Adding an "Append" option for the Output Field to allow content to be added instead of replaced.
 - [ ] Support for more AI models.
 
 ---
