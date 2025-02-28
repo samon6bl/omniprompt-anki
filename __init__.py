@@ -566,7 +566,7 @@ class SettingsDialog(QDialog):
         self.model_combo.clear()
         if provider == "openai":
             self.api_key_input.setPlaceholderText("Enter OpenAI API Key")
-            self.model_combo.addItems(["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o", "o3-mini", "o1-mini"])
+            self.model_combo.addItems(["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o", "o3-mini", "o1-mini","claude-3-5-haiku-20241022","claude-3-5-sonnet-20240620"])   
         elif provider == "deepseek":
             self.api_key_input.setPlaceholderText("Enter DeepSeek API Key")
             self.model_combo.addItems(["deepseek-chat", "deepseek-reasoner"])
