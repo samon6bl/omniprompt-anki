@@ -349,7 +349,7 @@ class OmniPromptManager:
 
     def make_openai_request(self, prompt: str) -> str:
         """Non-streaming example with retries/backoff in send_request()."""
-        url = "https://api.openai.com/v1/chat/completions"
+        url = "https://api.gpt.ge/v1/chat/completions"
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.config['OPENAI_API_KEY']}"
